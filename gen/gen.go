@@ -9,30 +9,36 @@ import (
 	"os"
 	"time"
 
+	"github.com/simpleforce/simpleforce"
 	"github.com/troysellers/go-modifier/config"
 	"github.com/troysellers/go-modifier/lorem"
-	"github.com/tzmfreedom/go-soapforce"
 )
 
-func GetValueForType(f *soapforce.Field, c *soapforce.Client) (interface{}, error) {
+func GetValueForType(f map[string]interface{}, c *simpleforce.Client) (interface{}, error) {
 
 	// if can be empty, retun empty on a 10%
-	if f.Nillable && rand.Intn(10) < 2 {
+	if f["nillable"].(bool) && rand.Intn(10) < 2 {
 		return nil, nil
 	}
-	switch *f.Type_ {
+	switch f["type"].(string) {
 	case "id":
 		return nil, fmt.Errorf("id values are not supported for generation")
 	case "boolean":
 		return rand.Intn(10) >= 5, nil
 	case "string", "encryptedstring":
-		return lorem.Word(1, rand.Intn(int(f.Length))), nil
+		l := f["length"].(float64)
+		return lorem.Word(1, rand.Intn(int(l))), nil
 	case "datetime", "date":
-		return time.Now(), nil
+		d := time.Now()
+		d = d.AddDate(0, rand.Intn(12), rand.Intn(30))
+		return d, nil
 	case "reference":
-		return GetRelatedId(f.ReferenceTo[0], c)
+		//TODO : get random related id somehow...
+		return nil, fmt.Errorf("reference not implemented yet")
 	case "currency", "double":
-		return rand.Intn(int(f.Precision)) / int(math.Pow10(int(f.Scale))), nil
+		p := f["precision"].(float64)
+		s := f["scale"].(float64)
+		return rand.Intn(int(p)) / int(math.Pow10(int(s))), nil
 	case "email":
 		return lorem.Email(), nil
 	case "location":
@@ -41,13 +47,13 @@ func GetValueForType(f *soapforce.Field, c *soapforce.Client) (interface{}, erro
 		return float32(rand.Intn(100)), nil
 	case "phone":
 		return nil, fmt.Errorf("phone value not implemented yet")
-	case "picklist":
-		return f.PicklistValues[rand.Intn(len(f.PicklistValues))].Value, nil
-	case "multipicklist":
-		return f.PicklistValues[rand.Intn(len(f.PicklistValues))].Value, nil
+	case "picklist", "multipicklist":
+		plv := f["picklistValues"].([]interface{})
+		selected := plv[rand.Intn(len(plv))]
+		return selected.(map[string]interface{})["value"], nil
 	case "textarea":
-		l := f.Length
-		s := lorem.Sentence(1, int(l))
+		l := f["length"].(int)
+		s := lorem.Sentence(1, l)
 		if len(s) < int(l) {
 			return s, nil
 		} else {
@@ -60,26 +66,6 @@ func GetValueForType(f *soapforce.Field, c *soapforce.Client) (interface{}, erro
 	}
 
 	return nil, nil
-}
-
-// two queries happen
-// first gets the one record, then look at the
-// total records size param.
-// then random offset using this number
-func GetRelatedId(obj string, c *soapforce.Client) (string, error) {
-	// first query gets a total
-	q := fmt.Sprintf("select id from %v", "account")
-	qr, err := c.QueryAll(q)
-	if err != nil {
-		return "", err
-	}
-	q2 := fmt.Sprintf("select id from %v limit 1 offset %d", obj, rand.Intn(int(qr.Size)))
-	fmt.Printf("%v\n", q2)
-	qr2, err := c.Query(q2)
-	if err != nil {
-		return "", err
-	}
-	return qr2.Records[0].Id, nil
 }
 
 // pass a mockaroo schema
@@ -107,7 +93,7 @@ func GetDataFromMockaroo(cfg *config.MockarooConfig, s string, r int) (string, e
 		}
 		return out.Name(), nil
 	} else {
-		return "", fmt.Errorf("unhandled response code from call to mockaro %v\n", resp.Status)
+		return "", fmt.Errorf("unhandled response code from call to mockaro %v", resp.Status)
 	}
 }
 

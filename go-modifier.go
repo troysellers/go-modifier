@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/joho/godotenv"
+	"github.com/simpleforce/simpleforce"
 	"github.com/troysellers/go-modifier/config"
 	"github.com/troysellers/go-modifier/gen"
 	"github.com/troysellers/go-modifier/sforce"
@@ -25,18 +26,30 @@ func main() {
 		printUsage()
 	}
 	var op = flag.String("o", "create", "Specify the operation to run [create|update]")
-	var query = flag.Bool("q", true, "Run the Salesforce query only to test what would be modified")
-	var count = flag.Int("c", 10, "Defines how many records need to be created when using the mockaroo generate")
+	var query = flag.Bool("query", true, "Run the Salesforce query only to test what would be modified")
+	var count = flag.Int("count", 10, "Defines how many records need to be created when using the mockaroo generate")
 	var mockSchema = flag.String("s", "", "Defines the schema to download from mockaroo. If flag not used, will get data from the queries in the .env file")
 	flag.Parse()
 
 	cfg := config.NewConfig()
-
+	c, err := sforce.NewRestClient(&cfg.SF)
+	if err != nil {
+		panic(err)
+	}
 	if strings.EqualFold(*op, "update") {
+		// holds a map["objectName"][]"Object IDs" for all queries that are specified.
+		objIds := make(map[string][]string)
+		for _, q := range cfg.SF.Queries {
+			obj, ids, err := sforce.GetAllObjIds(q, c)
+			if err != nil {
+				panic(err)
+			}
+			objIds[obj] = ids
+		}
 		var wg sync.WaitGroup
 		for _, q := range cfg.SF.Queries {
 			wg.Add(1)
-			go modify(q, &cfg.SF, &wg, *query)
+			go modify(q, &cfg.SF, &wg, *query, c)
 		}
 		wg.Wait()
 	}
@@ -50,7 +63,7 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		csvFile, err := downloadFromMockaroo(cfg, *mockSchema, *count)
+		csvFile, err := downloadFromMockaroo(cfg, *mockSchema, *count, personAccounts)
 		if err != nil {
 			panic(err)
 		}
@@ -76,6 +89,7 @@ func printUsage() {
 
 func downloadFromMockaroo(cfg *config.Config, s string, r int) (string, error) {
 
+	log.Printf("downloading %v", s)
 	file, err := gen.GetDataFromMockaroo(&cfg.Mockaroo, s, r)
 	if err != nil {
 		return "", err
@@ -83,13 +97,9 @@ func downloadFromMockaroo(cfg *config.Config, s string, r int) (string, error) {
 	return file, nil
 }
 
-func modify(q string, cfg *config.SFConfig, wg *sync.WaitGroup, queryOnly bool) {
+func modify(q string, cfg *config.SFConfig, wg *sync.WaitGroup, queryOnly bool, c *simpleforce.Client) {
 
 	defer wg.Done()
-	c, err := sforce.NewRestClient(cfg)
-	if err != nil {
-		panic(err)
-	}
 	log.Printf("Query to run %v : query only %v", q, queryOnly)
 	obj, modifiedFile, err := sforce.GetBulkQuery(cfg, c, q)
 	if err != nil {

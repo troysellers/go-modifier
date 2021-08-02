@@ -15,6 +15,7 @@ import (
 	"github.com/simpleforce/simpleforce"
 	"github.com/troysellers/go-modifier/config"
 	"github.com/troysellers/go-modifier/file"
+	"github.com/troysellers/go-modifier/gen"
 	"github.com/tzmfreedom/go-soapforce"
 )
 
@@ -137,6 +138,22 @@ func NewSoapClient(cfg *config.SFConfig) (*soapforce.Client, error) {
 	return sfc, nil
 }
 
+// returns object, allIds and an error
+func GetAllObjIds(obj string, c *simpleforce.Client) (string, []string, error) {
+
+	return "", nil, fmt.Errorf("not yet implemented")
+}
+
+func getObjectNameFromQuery(q string) string {
+	tokens := strings.Split(q, " ")
+	for i, t := range tokens {
+		if strings.EqualFold(t, "from") {
+			return tokens[i+1]
+		}
+	}
+	return ""
+}
+
 // fetches metadata for the object that has been queried.
 func (qj *QueryJob) fetchMetaForObj() {
 
@@ -146,36 +163,40 @@ func (qj *QueryJob) fetchMetaForObj() {
 	qj.SFObjectMeta = meta
 }
 
+func getField(fname string, fields []interface{}) map[string]interface{} {
+
+	for _, f := range fields {
+		field := f.(map[string]interface{})
+		if strings.EqualFold(field["name"].(string), fname) {
+			return field
+		}
+	}
+	return nil
+}
+
 /*
 	changes the data in the file on disk..
-	TODO: random according to query
 */
 func (qj *QueryJob) ModifyData() error {
-	switch qj.BulkJob.Object {
-	case "Account":
-		var nameIndex int
-		for i, header := range qj.QueryData[0] {
-			if strings.EqualFold(header, "Name") {
-				nameIndex = i
-				break
+
+	// for each header (field name)
+	for i, fieldName := range qj.QueryData[0] {
+		// get the SF metadata for this field
+		f := getField(fieldName, (*qj.SFObjectMeta)["fields"].([]interface{}))
+		// if field is updateable
+		if f["updateable"].(bool) {
+			// loop through each row in the file
+			for _, row := range qj.QueryData[1:] {
+				val, err := gen.GetValueForType(f, qj.SFClient)
+				if err != nil {
+					log.Printf("%v", err)
+				} else {
+					// update the column with this random value
+					row[i] = fmt.Sprintf("%v", val)
+					log.Printf("update %v to %v", fieldName, val)
+				}
 			}
 		}
-		for h, _ := range qj.QueryData[1:] {
-			qj.QueryData[h+1][nameIndex] = "broken-again"
-		}
-	case "Contact":
-		var nameIndex int
-		for i, header := range qj.QueryData[0] {
-			if strings.EqualFold(header, "FirstName") {
-				nameIndex = i
-				break
-			}
-		}
-		for h, _ := range qj.QueryData[1:] {
-			qj.QueryData[h+1][nameIndex] = "Broken"
-		}
-	default:
-		return fmt.Errorf("objec type %v not supported for update", qj.QueryData)
 	}
 	return nil
 }

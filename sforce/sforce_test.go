@@ -3,6 +3,7 @@ package sforce
 import (
 	"fmt"
 	"log"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,6 +14,14 @@ import (
 func init() {
 	if err := godotenv.Load("../.env"); err != nil {
 		log.Print("No .env file found")
+	}
+}
+
+func TestGetObjFromQuery(t *testing.T) {
+	query := "select id, name, descriptions from account where field = value"
+	obj := getObjectNameFromQuery(query)
+	if !strings.EqualFold(obj, "account") {
+		t.Error()
 	}
 }
 
