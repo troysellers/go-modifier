@@ -86,20 +86,26 @@ type BulkUpsertJobCreate struct {
 
 // results and
 type BulkUpsertJob struct {
-	Id                  string  `json:"id"`
-	Operation           string  `json:"operation"`
-	Object              string  `json:"object"`
-	CreatedBy           string  `json:"createdBy"`
-	CreatedDate         string  `json:"createdDate"`
-	SystemModstamp      string  `json:"systemModstamp"`
-	State               string  `json:"state"`
-	ExternalIdFieldName string  `json:"externalIdFieldName"`
-	ConcurrencyMode     string  `json:"Parallel"`
-	ContentType         string  `json:"contentType"`
-	ApiVersion          float32 `json:"apiVersion"`
-	ContentUrl          string  `json:"contentUrl"` // url to write batches to
-	LineEnding          string  `json:"lineEnding"`
-	ColumnDelimiter     string  `json:"columnDelimiter"`
+	Id                      string  `json:"id"`
+	Operation               string  `json:"operation"`
+	Object                  string  `json:"object"`
+	CreatedBy               string  `json:"createdBy"`
+	CreatedDate             string  `json:"createdDate"`
+	SystemModstamp          string  `json:"systemModstamp"`
+	State                   string  `json:"state"`
+	ExternalIdFieldName     string  `json:"externalIdFieldName"`
+	ConcurrencyMode         string  `json:"Parallel"`
+	ContentType             string  `json:"contentType"`
+	ApiVersion              float32 `json:"apiVersion"`
+	ContentUrl              string  `json:"contentUrl"` // url to write batches to
+	LineEnding              string  `json:"lineEnding"`
+	ColumnDelimiter         string  `json:"columnDelimiter"`
+	NumberRecordsProcessed  int     `json:"numberRecordsProcessed"`
+	NumberRecordsFailed     int     `json:"numberRecordsFailed"`
+	Retries                 int     `json:"retries"`
+	TotalProcessingTime     int     `json:"totalProcessingTime"`
+	ApiActiveProcessingTime int     `json:"apiActiveProcessingTime"`
+	ApexProcessingTime      int     `json:"apexProcessingTime"`
 }
 
 // closing the upsert
@@ -280,6 +286,9 @@ func UploadCSVToSalesforce(cfg *config.Config, c *simpleforce.Client, csvfile st
 	if err := uj.closeJob(); err != nil {
 		return err
 	}
+	if err := uj.GetJobStatus(); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -415,7 +424,61 @@ func getCSVBytes(file string) ([]byte, error) {
 
 	return f, nil
 }
+func (uj *UpsertJob) GetJobStatus() error {
+	h := make(map[string]string)
+	h["Content-Type"] = "application/json; charset=UTF-8"
+	h["Accept"] = "application/json"
+	h["Authorization"] = fmt.Sprintf("Bearer %v", uj.SessionId)
 
+	for {
+		url := fmt.Sprintf("%v%v%v/", uj.SFEndpoint, fmt.Sprintf(bulkIngestEndpoint, uj.ApiVersion), uj.Job.Id)
+		_, responseBytes, err := doHttp(url, uj.SessionId, nil, "GET", h)
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(responseBytes, &uj.Job); err != nil {
+			return err
+		}
+		if uj.Job.State == "JobComplete" {
+			break
+		}
+		log.Println("Waiting 30 seconds before trying again")
+		time.Sleep(30 * time.Second) // wait 30 secionds
+	}
+	if uj.Job.NumberRecordsFailed > 0 {
+		uj.fetchFailedRecords()
+	}
+	log.Printf("Job %s [%s on %s] complete in %dms\n", uj.Job.Id, uj.Job.Operation, uj.Job.Object, uj.Job.TotalProcessingTime)
+	log.Printf("Total Records %d\n", uj.Job.NumberRecordsProcessed)
+	log.Printf("Records Failed %d\n", uj.Job.NumberRecordsFailed)
+
+	return nil
+}
+
+func (uj *UpsertJob) fetchFailedRecords() error {
+	h := make(map[string]string)
+	h["Content-Type"] = "application/json; charset=UTF-8"
+	h["Accept"] = "application/json"
+	h["Authorization"] = fmt.Sprintf("Bearer %v", uj.SessionId)
+
+	url := fmt.Sprintf("%v%v%v/failedResults/", uj.SFEndpoint, fmt.Sprintf(bulkIngestEndpoint, uj.ApiVersion), uj.Job.Id)
+	_, responseBytes, err := doHttp(url, uj.SessionId, nil, "GET", h)
+	if err != nil {
+		return err
+	}
+	lines, err := csv.NewReader(bytes.NewBuffer(responseBytes)).ReadAll()
+	if err != nil {
+		return err
+	}
+	fPath, err := file.BuildFilePath("unsuccessful.csv")
+	if err != nil {
+		return err
+	}
+	if _, err := file.WriteCsv(fPath, lines); err != nil {
+		return err
+	}
+	return nil
+}
 func (uj *UpsertJob) closeJob() error {
 	h := make(map[string]string)
 	h["Content-Type"] = "application/json; charset=UTF-8"
@@ -551,7 +614,7 @@ func GetAllObjIds(cfg *config.Config, obj string, c *simpleforce.Client) ([]stri
 	q := fmt.Sprintf("select id from %v", obj)
 
 	if strings.EqualFold(obj, "user") {
-		q += " where isActive = true"
+		q += " where isActive = true and userType = 'standard'"
 	}
 	log.Printf("Downloading all IDS [%v]. This could take a while... ", q)
 	qj, err := GetBulkQuery(cfg, c, q)

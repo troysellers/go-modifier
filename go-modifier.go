@@ -65,6 +65,7 @@ func main() {
 				panic(err)
 			}
 			fmt.Printf("Updated to point to random, existing Account IDs")
+
 		case "task", "event":
 			panic("we haven't yet figured out how to do the polymorphic key thing...")
 		}
