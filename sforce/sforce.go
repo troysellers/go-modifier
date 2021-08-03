@@ -254,6 +254,12 @@ func GetBulkQuery(cfg *config.SFConfig, c *simpleforce.Client, q string) (string
 }
 
 func UploadCSVToSalesforce(cfg *config.SFConfig, c *simpleforce.Client, csvfile string, obj string) error {
+
+	// update the object if we are loading personaccounts
+	if strings.EqualFold(obj, "personaccount") {
+		obj = "account"
+	}
+
 	// create the bulk update job
 	uj := UpsertJob{
 		SessionId:    c.GetSid(),

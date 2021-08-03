@@ -63,7 +63,7 @@ func main() {
 		if err != nil {
 			panic(err)
 		}
-		csvFile, err := downloadFromMockaroo(cfg, *mockSchema, *count, personAccounts)
+		csvFile, err := downloadFromMockaroo(cfg, *mockSchema, *count)
 		if err != nil {
 			panic(err)
 		}
