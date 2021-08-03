@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +16,21 @@ func init() {
 	if err := godotenv.Load("../.env"); err != nil {
 		log.Print("No .env file found")
 	}
+}
+
+func TestSyncMap(t *testing.T) {
+	var sm sync.Map
+
+	key := "USER"
+	val1 := "some value"
+
+	v, ok := sm.Load(key)
+	fmt.Printf("empty load should be empty [%v] [%v]", v, ok)
+
+	sm.Store(key, val1)
+
+	v, ok = sm.Load(key)
+	fmt.Printf("empty load should be populated [%v] [%v]", v, ok)
 }
 
 func TestGetObjFromQuery(t *testing.T) {

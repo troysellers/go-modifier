@@ -8,14 +8,17 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"math"
+	"math/rand"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/simpleforce/simpleforce"
 	"github.com/troysellers/go-modifier/config"
 	"github.com/troysellers/go-modifier/file"
-	"github.com/troysellers/go-modifier/gen"
+	"github.com/troysellers/go-modifier/lorem"
 	"github.com/tzmfreedom/go-soapforce"
 )
 
@@ -32,7 +35,8 @@ type QueryJob struct {
 	ApiVersion   float32
 	BulkJob      BulkJob
 	QueryData    [][]string
-	DownloadFile string
+	FileName     string
+	FilePath     string
 }
 
 // creats the BulkQuery
@@ -138,12 +142,6 @@ func NewSoapClient(cfg *config.SFConfig) (*soapforce.Client, error) {
 	return sfc, nil
 }
 
-// returns object, allIds and an error
-func GetAllObjIds(obj string, c *simpleforce.Client) (string, []string, error) {
-
-	return "", nil, fmt.Errorf("not yet implemented")
-}
-
 func getObjectNameFromQuery(q string) string {
 	tokens := strings.Split(q, " ")
 	for i, t := range tokens {
@@ -177,7 +175,7 @@ func getField(fname string, fields []interface{}) map[string]interface{} {
 /*
 	changes the data in the file on disk..
 */
-func (qj *QueryJob) ModifyData() error {
+func (qj *QueryJob) ModifyData(cfg *config.Config, objIds *sync.Map, c *simpleforce.Client) error {
 
 	// for each header (field name)
 	for i, fieldName := range qj.QueryData[0] {
@@ -187,7 +185,7 @@ func (qj *QueryJob) ModifyData() error {
 		if f["updateable"].(bool) {
 			// loop through each row in the file
 			for _, row := range qj.QueryData[1:] {
-				val, err := gen.GetValueForType(f, qj.SFClient)
+				val, err := getValueForType(cfg, f, qj.SFClient, objIds)
 				if err != nil {
 					log.Printf("%v", err)
 				} else {
@@ -204,7 +202,7 @@ func (qj *QueryJob) ModifyData() error {
 // returns the filepath of downloaded CSV of results.
 // this is blocking
 // returns the Object the query was for, the filepath of the downloaded results.. and an error
-func GetBulkQuery(cfg *config.SFConfig, c *simpleforce.Client, q string) (string, string, error) {
+func GetBulkQuery(cfg *config.Config, c *simpleforce.Client, q string) (QueryJob, error) {
 
 	// query the data
 	queryJob := &QueryJob{
@@ -214,11 +212,11 @@ func GetBulkQuery(cfg *config.SFConfig, c *simpleforce.Client, q string) (string
 		},
 		SessionId:  c.GetSid(),
 		SFEndpoint: c.GetLoc(),
-		ApiVersion: cfg.ApiVersion,
+		ApiVersion: cfg.SF.ApiVersion,
 		SFClient:   c,
 	}
 	if err := queryJob.createQueryJob(); err != nil {
-		return "", "", err
+		return QueryJob{}, err
 	}
 	// wait for query to finish
 	for {
@@ -228,32 +226,30 @@ func GetBulkQuery(cfg *config.SFConfig, c *simpleforce.Client, q string) (string
 		}
 		time.Sleep(10 * time.Second)
 		if err := queryJob.getBulkJobState(); err != nil {
-			return "", "", err
+			return *queryJob, err
 		}
 	}
 	// get the results of that data
 	if err := queryJob.getResults(); err != nil {
-		return "", "", err
+		return *queryJob, err
+	}
+	var err error
+	queryJob.FileName = fmt.Sprintf("%v-query.csv", queryJob.BulkJob.Object)
+	queryJob.FilePath, err = file.BuildFilePath(queryJob.FileName)
+	if err != nil {
+		return *queryJob, err
 	}
 	// write the data to a temporary file
-	d, err := file.WriteCsv(fmt.Sprintf("%v-query.csv", queryJob.BulkJob.Object), queryJob.QueryData)
+	d, err := file.WriteCsv(queryJob.FilePath, queryJob.QueryData)
 	if err != nil {
-		return "", "", err
+		return *queryJob, err
 	}
-	queryJob.DownloadFile = d
-	// change the fields in the data
-	if err := queryJob.ModifyData(); err != nil {
-		return "", "", err
-	}
-	// write the CSV back to file
-	d2, err := file.WriteCsv(fmt.Sprintf("%v-query-modified.csv", queryJob.BulkJob.Object), queryJob.QueryData)
-	if err != nil {
-		panic(err)
-	}
-	return queryJob.BulkJob.Object, d2, nil
+	queryJob.FilePath = d
+
+	return *queryJob, nil
 }
 
-func UploadCSVToSalesforce(cfg *config.SFConfig, c *simpleforce.Client, csvfile string, obj string) error {
+func UploadCSVToSalesforce(cfg *config.Config, c *simpleforce.Client, csvfile string, obj string) error {
 
 	// update the object if we are loading personaccounts
 	if strings.EqualFold(obj, "personaccount") {
@@ -264,7 +260,7 @@ func UploadCSVToSalesforce(cfg *config.SFConfig, c *simpleforce.Client, csvfile 
 	uj := UpsertJob{
 		SessionId:    c.GetSid(),
 		SFEndpoint:   c.GetLoc(),
-		ApiVersion:   cfg.ApiVersion,
+		ApiVersion:   cfg.SF.ApiVersion,
 		ModifiedFile: csvfile,
 		Create: BulkUpsertJobCreate{
 			Object:              obj,
@@ -477,4 +473,108 @@ func doHttp(url string, sid string, body []byte, method string, headers map[stri
 
 	log.Printf("Received %d bytes with http response %v\n", len(bytes), res.Status)
 	return res.Header, bytes, nil
+}
+
+func getValueForType(cfg *config.Config, f map[string]interface{}, c *simpleforce.Client, objIds *sync.Map) (interface{}, error) {
+
+	// if can be empty, retun empty on a 10%
+	if f["nillable"].(bool) && rand.Intn(10) < 2 {
+		return nil, nil
+	}
+	switch f["type"].(string) {
+	case "id":
+		return nil, fmt.Errorf("id values are not supported for generation")
+	case "boolean":
+		return rand.Intn(10) >= 5, nil
+	case "string", "encryptedstring":
+		l := f["length"].(float64)
+		return lorem.Word(1, rand.Intn(int(l))), nil
+	case "datetime", "date":
+		d := time.Now()
+		d = d.AddDate(0, rand.Intn(12), rand.Intn(30))
+		return d, nil
+	case "reference":
+		fmt.Printf("REFERENCCE %v\n", f)
+		// get the name of the object this field references
+		rt := f["referenceTo"].([]interface{})
+		referenceTo := rt[0].(string)
+		fmt.Printf("reference to [%v]\n", referenceTo)
+		// have we already got the complete list of ids?
+		_, ok := objIds.Load(referenceTo)
+		if !ok {
+			// if not, get and cache in the sync.Map
+			ids, err := GetAllObjIds(cfg, referenceTo, c)
+			if err != nil {
+				return nil, err
+			}
+			objIds.Store(referenceTo, ids)
+		}
+		i, _ := objIds.Load(referenceTo)
+		ids := i.([]string)
+		return ids[rand.Intn(len(ids))], nil
+	case "currency", "double":
+		p := f["precision"].(float64)
+		s := f["scale"].(float64)
+		return rand.Intn(int(p)) / int(math.Pow10(int(s))), nil
+	case "email":
+		return lorem.Email(), nil
+	case "location":
+		return nil, fmt.Errorf("location value not implemented yet")
+	case "percent":
+		return float32(rand.Intn(100)), nil
+	case "phone":
+		return nil, fmt.Errorf("phone value not implemented yet")
+	case "picklist", "multipicklist":
+		plv := f["picklistValues"].([]interface{})
+		selected := plv[rand.Intn(len(plv))]
+		return selected.(map[string]interface{})["value"], nil
+	case "textarea":
+		l := f["length"].(int)
+		s := lorem.Sentence(1, l)
+		if len(s) < int(l) {
+			return s, nil
+		} else {
+			return s[:l], nil
+		}
+	case "time":
+		return nil, fmt.Errorf("phone value not implemented yet")
+	case "url":
+		return lorem.Url(), nil
+	}
+
+	return nil, nil
+}
+
+// returns object, allIds and an error
+func GetAllObjIds(cfg *config.Config, obj string, c *simpleforce.Client) ([]string, error) {
+
+	q := fmt.Sprintf("select id from %v", obj)
+
+	if strings.EqualFold(obj, "user") {
+		q += " where isActive = true"
+	}
+	log.Printf("Downloading all IDS [%v]. This could take a while... ", q)
+	qj, err := GetBulkQuery(cfg, c, q)
+	if err != nil {
+		return nil, err
+	}
+
+	b, err := file.GetCSVBytes(qj.FilePath)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := csv.NewReader(bytes.NewReader(b)).ReadAll()
+	if err != nil {
+		return nil, err
+	}
+
+	var results []string
+	for _, r := range rows[1:] { // ignore the header row
+		if len(r) > 1 {
+			return nil, fmt.Errorf("there has been an error downloading IDs. More than one value per record returned")
+		}
+		results = append(results, r[0])
+	}
+	log.Printf("Found %d id values for %v", len(results), obj)
+	return results, nil
 }
