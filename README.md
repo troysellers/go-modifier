@@ -21,7 +21,7 @@ You can also specify multiple SOQL queries in this environment variable.
 QUERIES=select Id, Name, Industry, Type from Account, select Id, FirstName from Contact, select Id, Subject, Status from case where Closed=false
 ``` 
 
-## Creat from Mockaroo
+## Create from Mockaroo
 There is a [mockaroo project](https://www.mockaroo.com/projects/25058) that has some default data sets defined, standard objects and fields 
 * account
 * contact
