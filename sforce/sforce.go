@@ -18,7 +18,6 @@ import (
 	"github.com/simpleforce/simpleforce"
 	"github.com/troysellers/go-modifier/config"
 	"github.com/troysellers/go-modifier/file"
-	"github.com/troysellers/go-modifier/lorem"
 	"github.com/tzmfreedom/go-soapforce"
 )
 
@@ -550,8 +549,11 @@ func getValueForType(cfg *config.Config, f map[string]interface{}, c *simpleforc
 	case "boolean":
 		return rand.Intn(10) >= 5, nil
 	case "string", "encryptedstring":
-		l := f["length"].(float64)
-		return lorem.Word(1, rand.Intn(int(l))), nil
+		return "broken", nil
+		/*
+			l := int(f["length"].(float64))
+			return lorem.Word(1, rand.Intn(l)), nil
+		*/
 	case "datetime", "date":
 		d := time.Now()
 		d = d.AddDate(0, rand.Intn(12), rand.Intn(30))
@@ -580,29 +582,35 @@ func getValueForType(cfg *config.Config, f map[string]interface{}, c *simpleforc
 		s := f["scale"].(float64)
 		return rand.Intn(int(p)) / int(math.Pow10(int(s))), nil
 	case "email":
-		return lorem.Email(), nil
+		return "broken@email.co", nil
+		//return lorem.Email(), nil
 	case "location":
 		return nil, fmt.Errorf("location value not implemented yet")
 	case "percent":
-		return float32(rand.Intn(100)), nil
+		return 0, nil
+		//return float32(rand.Intn(100)), nil
 	case "phone":
-		return nil, fmt.Errorf("phone value not implemented yet")
+		return "000000000", nil
+		//return nil, fmt.Errorf("phone value not implemented yet")
 	case "picklist", "multipicklist":
 		plv := f["picklistValues"].([]interface{})
 		selected := plv[rand.Intn(len(plv))]
 		return selected.(map[string]interface{})["value"], nil
 	case "textarea":
-		l := f["length"].(int)
-		s := lorem.Sentence(1, l)
-		if len(s) < int(l) {
-			return s, nil
-		} else {
-			return s[:l], nil
-		}
+		/*
+			l := int(f["length"].(float64))
+			s := lorem.Sentence(1, l)
+			if len(s) < int(l) {
+				return s, nil
+			} else {
+				return s[:l], nil
+			} */
+		return "broken", nil
 	case "time":
 		return nil, fmt.Errorf("phone value not implemented yet")
 	case "url":
-		return lorem.Url(), nil
+		return "www.broken.url", nil
+		//return lorem.Url(), nil
 	}
 
 	return nil, nil

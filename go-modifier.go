@@ -31,6 +31,8 @@ func main() {
 	var query = flag.Bool("query", true, "Run the Salesforce query only to test what would be modified")
 	var count = flag.Int("count", 10, "Defines how many records need to be created when using the mockaroo generate")
 	var mockSchema = flag.String("s", "", "Defines the schema to download from mockaroo. If flag not used, will get data from the queries in the .env file")
+	var fetchOnly = flag.Bool("fetch", false, "When true will fetch and merge mockaroo data but will not send to Salesforce.")
+
 	flag.Parse()
 
 	cfg := config.NewConfig()
@@ -73,9 +75,11 @@ func main() {
 		if err := updateIds(cfg, csvFile, "user", "ownerId", &objIds, c); err != nil {
 			panic(err)
 		}
-		// write data into Salesforce
-		if err := sforce.UploadCSVToSalesforce(cfg, c, csvFile, *mockSchema); err != nil {
-			panic(err)
+		if !*fetchOnly {
+			// write data into Salesforce
+			if err := sforce.UploadCSVToSalesforce(cfg, c, csvFile, *mockSchema); err != nil {
+				panic(err)
+			}
 		}
 	}
 }
