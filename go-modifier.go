@@ -12,7 +12,7 @@ import (
 	"github.com/simpleforce/simpleforce"
 	"github.com/troysellers/go-modifier/config"
 	"github.com/troysellers/go-modifier/file"
-	"github.com/troysellers/go-modifier/gen"
+	"github.com/troysellers/go-modifier/mockaroo"
 	"github.com/troysellers/go-modifier/sforce"
 )
 
@@ -27,11 +27,15 @@ func main() {
 	if len(os.Args) < 2 {
 		printUsage()
 	}
-	var op = flag.String("o", "create", "Specify the operation to run [create|update]")
+	var op = flag.String("op", "", "Specify the operation to run [create|update]")
 	var query = flag.Bool("query", true, "Run the Salesforce query only to test what would be modified")
 	var count = flag.Int("count", 10, "Defines how many records need to be created when using the mockaroo generate")
-	var mockSchema = flag.String("s", "", "Defines the schema to download from mockaroo. If flag not used, will get data from the queries in the .env file")
+	var obj = flag.String("obj", "", "Which salesforce object do you want to fetch data for")
+	var references = flag.Bool("references", false, "set to true if you want to query for records to relate this to. ")
+	//var mockSchema = flag.String("s", "", "Defines the schema to download from mockaroo. If flag not used, will get data from the queries in the .env file")
 	var fetchOnly = flag.Bool("fetch", false, "When true will fetch and merge mockaroo data but will not send to Salesforce.")
+	var whoObj = flag.String("who", "", "If creating activities (tasks/events) you need to specify the who object (user|contact)")
+	var whatObj = flag.String("what", "", "If creating activities (tasks/events) you need to specify the what object (any activity enabled obj)")
 
 	flag.Parse()
 
@@ -43,25 +47,29 @@ func main() {
 	// get a syncMap to store any downloaded Ids so we only do this once.
 	var objIds sync.Map
 
-	if strings.EqualFold(*op, "update") {
+	switch *op {
+	case "update":
 		var wg sync.WaitGroup
 		for _, q := range cfg.SF.Queries {
 			wg.Add(1)
 			go modify(q, cfg, &wg, *query, c, &objIds)
 		}
 		wg.Wait()
-	}
-
-	if strings.EqualFold(*op, "create") {
-		if *mockSchema == "" {
-			log.Printf("You need to specify the mockaroo schema (-schema flag) name for this to operate\n----")
-			printUsage()
-		}
-		csvFile, err := downloadFromMockaroo(cfg, *mockSchema, *count)
+	case "create":
+		/*
+			if *mockSchema == "" {
+				log.Printf("You need to specify the mockaroo schema (-schema flag) name for this to operate\n----")
+				printUsage()
+			}
+		*/
+		//csvFile, err := downloadFromMockaroo(cfg, *mockSchema, *count)
+		o := c.SObject(*obj)
+		m := o.Describe()
+		csvFile, err := mockaroo.GetDataForObj(m, cfg, *count)
 		if err != nil {
 			panic(err)
 		}
-		switch *mockSchema {
+		/*switch *mockSchema {
 		case "case", "opportunity", "contact":
 			if err := updateIds(cfg, csvFile, "account", "accountId", &objIds, c); err != nil {
 				panic(err)
@@ -69,15 +77,60 @@ func main() {
 			fmt.Printf("Updated to point to random, existing Account IDs")
 
 		case "task", "event":
-			panic("we haven't yet figured out how to do the polymorphic key thing...")
+			if *whatObj == "" {
+				log.Printf("\n**This will create %d %v records without setting the WhatID field Is this OK?\n", *count, *mockSchema)
+				time.Sleep(time.Second * 5)
+			} else {
+				if err := updateIds(cfg, csvFile, *whatObj, "WhatId", &objIds, c); err != nil {
+					panic(err)
+				}
+			}
+			if *whoObj == "" {
+				log.Printf("\n**This will create %d %v records without setting the WhoID field. Is this OK?\n", *count, *mockSchema)
+				time.Sleep(time.Second * 5)
+			} else {
+				if err := updateIds(cfg, csvFile, *whoObj, "WhoId", &objIds, c); err != nil {
+					panic(err)
+				}
+			}
+		} */
+
+		if *references {
+			fields := (*m)["fields"].([]interface{})
+			for _, f := range fields {
+				// TODO : handle polymorphic keys better than this...
+				field := f.(map[string]interface{})
+				if strings.EqualFold(*obj, "task") || strings.EqualFold(*obj, "event") {
+					if field["relationshipName"] == "Who" {
+						field["referenceTo"] = []string{*whoObj}
+					}
+					if field["relationshipName"] == "What" {
+						field["referenceTo"] = []string{*whatObj}
+					}
+				}
+				if field["referenceTo"].([]interface{}) != nil {
+					// fetch all the possible Ids for this.
+					_, err := sforce.GetValueForType(cfg, field, c, &objIds)
+					if err != nil {
+						panic(err)
+					}
+					fieldName := field["name"].(string)
+					rt := field["referenceTo"].([]interface{})
+					referenceTo := rt[0].(string)
+					if err := updateIds(cfg, csvFile, referenceTo, fieldName, &objIds, c); err != nil {
+						panic(err)
+					}
+				}
+			}
 		}
+
 		// always update the owner
 		if err := updateIds(cfg, csvFile, "user", "ownerId", &objIds, c); err != nil {
 			panic(err)
 		}
 		if !*fetchOnly {
 			// write data into Salesforce
-			if err := sforce.UploadCSVToSalesforce(cfg, c, csvFile, *mockSchema); err != nil {
+			if err := sforce.UploadCSVToSalesforce(cfg, c, csvFile, *obj); err != nil {
 				panic(err)
 			}
 		}
@@ -126,6 +179,7 @@ func printUsage() {
 	os.Exit(1)
 }
 
+/*
 func downloadFromMockaroo(cfg *config.Config, s string, r int) (string, error) {
 
 	log.Printf("downloading %v", s)
@@ -135,7 +189,7 @@ func downloadFromMockaroo(cfg *config.Config, s string, r int) (string, error) {
 	}
 	return file, nil
 }
-
+*/
 func modify(q string, cfg *config.Config, wg *sync.WaitGroup, queryOnly bool, c *simpleforce.Client, objIds *sync.Map) {
 
 	defer wg.Done()
@@ -146,7 +200,6 @@ func modify(q string, cfg *config.Config, wg *sync.WaitGroup, queryOnly bool, c 
 	}
 
 	if !queryOnly {
-		//TODO - put this inside the query only
 		// change the fields in the data
 		// depending on the query, this can take some time if it is populating referenced fields randomly.
 		if err := queryJob.ModifyData(cfg, objIds, c); err != nil {

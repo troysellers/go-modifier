@@ -10,6 +10,7 @@ import (
 
 	"github.com/joho/godotenv"
 	"github.com/troysellers/go-modifier/config"
+	"github.com/tzmfreedom/go-soapforce"
 )
 
 func init() {
@@ -77,4 +78,75 @@ func TestDate(t *testing.T) {
 	t2, _ := time.Parse(d, d2)
 	fmt.Printf("%v", t2)
 
+}
+
+func TestGetStuff(t *testing.T) {
+	cfg := &config.Config{
+		SF: config.SFConfig{
+			Username:   "troy@grax.perf",
+			Password:   "demo1234",
+			LoginUrl:   "login.salesforce.com",
+			Token:      "",
+			ApiVersion: 51.0,
+			SfDebug:    true,
+		},
+	}
+	c, err := NewSoapClient(&cfg.SF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dsor, err := c.DescribeSObject("Account")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, f := range dsor.Fields {
+		//log.Printf("%v\n", f.Name)
+		if f.Name == "CreatedDate" || f.Name == "CreatedById" || f.Name == "LastModifiedDate" || f.Name == "LastModifiedById" {
+			log.Printf("%s.updateable : %v", f.Name, f.Updateable)
+		}
+	}
+
+}
+
+func TestCreateAccount(t *testing.T) {
+
+	cfg := &config.Config{
+		SF: config.SFConfig{
+			Username:   "troy@grax.perf",
+			Password:   "demo1234",
+			LoginUrl:   "login.salesforce.com",
+			Token:      "",
+			ApiVersion: 51.0,
+			SfDebug:    true,
+		},
+	}
+	c, err := NewSoapClient(&cfg.SF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fields := make(map[string]interface{})
+	fields["Name"] = "Test-SOAP-Troy"
+	fields["CreatedDate"] = "2021-08-03T12:00:00.000Z"
+	fields["LastModifiedDate"] = "2021-08-03T12:00:00.000Z"
+	fields["LastModifiedById"] = "0056g0000022cohAAA"
+	fields["CreatedById"] = "0056g0000022cohAAA"
+	obj := &soapforce.SObject{
+		Fields: fields,
+		Type:   "Account",
+		Id:     "0016g00000IGY2xAAH",
+	}
+	var objects []*soapforce.SObject
+	objects = append(objects, obj)
+	sr, err := c.Update(objects)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range sr {
+		if !s.Success {
+			for _, e := range s.Errors {
+				log.Printf("%v\n", e.Message)
+			}
+		}
+	}
 }

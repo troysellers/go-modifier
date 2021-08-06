@@ -190,7 +190,7 @@ func (qj *QueryJob) ModifyData(cfg *config.Config, objIds *sync.Map, c *simplefo
 		if f["updateable"].(bool) {
 			// loop through each row in the file
 			for _, row := range qj.QueryData[1:] {
-				val, err := getValueForType(cfg, f, qj.SFClient, objIds)
+				val, err := GetValueForType(cfg, f, qj.SFClient, objIds)
 				if err != nil {
 					log.Printf("%v", err)
 				} else {
@@ -537,7 +537,7 @@ func doHttp(url string, sid string, body []byte, method string, headers map[stri
 	return res.Header, bytes, nil
 }
 
-func getValueForType(cfg *config.Config, f map[string]interface{}, c *simpleforce.Client, objIds *sync.Map) (interface{}, error) {
+func GetValueForType(cfg *config.Config, f map[string]interface{}, c *simpleforce.Client, objIds *sync.Map) (interface{}, error) {
 
 	// if can be empty, retun empty on a 10%
 	if f["nillable"].(bool) && rand.Intn(10) < 2 {

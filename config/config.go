@@ -11,7 +11,8 @@ type Config struct {
 	Mockaroo MockarooConfig
 }
 type MockarooConfig struct {
-	Key string
+	Key     string
+	DataDir string
 }
 type SFConfig struct {
 	Username    string
@@ -39,7 +40,8 @@ func NewConfig() *Config {
 			SfBatchSize: getEnvInt("SF_BATCH_SIZE", 200),
 		},
 		Mockaroo: MockarooConfig{
-			Key: getEnv("MOCKAROO_KEY", ""),
+			Key:     getEnv("MOCKAROO_KEY", ""),
+			DataDir: getEnv("MOCKAROO_DATA_DIR", ""),
 		},
 	}
 }
