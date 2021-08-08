@@ -559,11 +559,11 @@ func GetValueForType(cfg *config.Config, f map[string]interface{}, c *simpleforc
 		d = d.AddDate(0, rand.Intn(12), rand.Intn(30))
 		return d, nil
 	case "reference":
-		fmt.Printf("REFERENCCE %v\n", f)
+		log.Printf("REFERENCCE %v\n", f)
 		// get the name of the object this field references
 		rt := f["referenceTo"].([]interface{})
 		referenceTo := rt[0].(string)
-		fmt.Printf("reference to [%v]\n", referenceTo)
+		log.Printf("reference to [%v]\n", referenceTo)
 		// have we already got the complete list of ids?
 		_, ok := objIds.Load(referenceTo)
 		if !ok {

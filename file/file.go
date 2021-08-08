@@ -49,6 +49,9 @@ func WriteCsv(filePath string, data [][]string) (string, error) {
 // writes these changes to the file
 // will append the column if it doesn't exist in the file.
 func UpdateColumn(filePath string, col string, ids []string) error {
+	if filePath == "" || col == "" || ids == nil {
+		return nil
+	}
 	f, err := os.Open(filePath)
 	if err != nil {
 		return err

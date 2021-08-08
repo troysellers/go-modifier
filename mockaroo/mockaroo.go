@@ -22,34 +22,40 @@ const CustomFormat string = "generate.custom"
 const SQLFormat string = "generate.sql"
 const XMLFormat string = "generate.xml"
 
+type MockarooRequest struct {
+	SObject        *simpleforce.SObjectMeta
+	Cfg            *config.Config
+	Count          int
+	PersonAccounts bool
+}
+
 // fetches mockaroo CSV for the object specified.
 // returns a string that is the full path
-func GetDataForObj(obj *simpleforce.SObjectMeta, cfg *config.Config, count int) (string, error) {
+func GetDataForObj(req *MockarooRequest) (string, error) {
 
-	var mockFields []interface{}
-	sfFields := (*obj)["fields"].([]interface{})
-	for _, f := range sfFields {
-		field := f.(map[string]interface{})
-		if shouldGetData(field) {
-			mockFields = append(mockFields, getMockTypeForField(field))
-		}
-	}
+	mockFields := getSchemaForObjectType(req.SObject, req.PersonAccounts)
 	b, err := json.Marshal(mockFields)
 	if err != nil {
 		return "", err
 	}
-	url := fmt.Sprintf("https://api.mockaroo.com/api/generate.csv?key=%v&count=%d", cfg.Mockaroo.Key, count)
+	url := fmt.Sprintf("https://api.mockaroo.com/api/generate.csv?key=%v&count=%d", req.Cfg.Mockaroo.Key, req.Count)
 	_, respbytes, err := doHttp(url, "", b, "POST", nil)
 	if err != nil {
 		return "", err
 	}
-	fName := fmt.Sprintf("%v%v.csv", cfg.Mockaroo.DataDir, (*obj)["name"])
+	fName := fmt.Sprintf("%v%v.csv", req.Cfg.Mockaroo.DataDir, (*req.SObject)["name"])
 	if err = os.WriteFile(fName, respbytes, 0777); err != nil {
 		return "", nil
 	}
 	return fName, nil
 }
 
+// captures top level logic on whether the field data should
+// be generated.
+// Returns true if all these conditions are satisfied
+// - updateable = true
+// - doesn't belong to a managed package (i.e. name doesn't contain two occurences of '__' )
+// - field isn't self referencing (i.e. name != 'ParentId')
 func shouldGetData(f map[string]interface{}) bool {
 
 	// we only want to get data for fields we can update
@@ -58,6 +64,10 @@ func shouldGetData(f map[string]interface{}) bool {
 	}
 	// we aren't going to try to populate managed package data fields
 	if strings.Count(f["name"].(string), "__") == 2 {
+		return false
+	}
+	// we don't support parent relationships yet
+	if f["name"].(string) == "ParentId" {
 		return false
 	}
 	return true
@@ -126,6 +136,48 @@ func getMockTypeForField(f map[string]interface{}) interface{} {
 	}
 	return mockType
 
+}
+
+// returns a mocktype that is ideal for the object
+// or defaults for custom object
+func getSchemaForObjectType(obj *simpleforce.SObjectMeta, personAccounts bool) []interface{} {
+
+	var fields = (*obj)["fields"].([]interface{})
+	switch (*obj)["name"].(string) {
+	case "Account":
+		log.Println("getting data for the account")
+		return getSchemaForAccount(fields, personAccounts)
+	case "Contact":
+		return getSchemaForContact(fields, personAccounts)
+	default:
+		return getSchemaForGenericObj(fields)
+	}
+}
+
+// returns the mockaroo schema for any object we haven't
+// specifically coded for.
+func getSchemaForGenericObj(fields []interface{}) []interface{} {
+
+	var mockFields []interface{}
+	for _, f := range fields {
+		field := f.(map[string]interface{})
+		if shouldGetData(field) {
+			mockFields = append(mockFields, getMockTypeForField(field))
+		}
+	}
+	return mockFields
+}
+
+// returns true if the string is set as the Name value of one of the
+// schema elements passed in the array
+func hasBeenPopulated(fieldName string, schema []FieldSpec) bool {
+
+	for _, s := range schema {
+		if s.Name == fieldName {
+			return true
+		}
+	}
+	return false
 }
 
 // returns the response body bytes if we had a 200 response.

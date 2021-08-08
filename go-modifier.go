@@ -28,14 +28,14 @@ func main() {
 		printUsage()
 	}
 	var op = flag.String("op", "", "Specify the operation to run [create|update]")
-	var query = flag.Bool("query", true, "Run the Salesforce query only to test what would be modified")
-	var count = flag.Int("count", 10, "Defines how many records need to be created when using the mockaroo generate")
-	var obj = flag.String("obj", "", "Which salesforce object do you want to fetch data for")
-	var references = flag.Bool("references", false, "set to true if you want to query for records to relate this to. ")
-	//var mockSchema = flag.String("s", "", "Defines the schema to download from mockaroo. If flag not used, will get data from the queries in the .env file")
-	var fetchOnly = flag.Bool("fetch", false, "When true will fetch and merge mockaroo data but will not send to Salesforce.")
-	var whoObj = flag.String("who", "", "If creating activities (tasks/events) you need to specify the who object (user|contact)")
-	var whatObj = flag.String("what", "", "If creating activities (tasks/events) you need to specify the what object (any activity enabled obj)")
+	var query = flag.Bool("query", true, "Update Flag : Run the Salesforce query only to test what would be modified")
+	var count = flag.Int("count", 10, "Create Flag : Defines how many records need to be created when using the mockaroo generate")
+	var obj = flag.String("obj", "", "Create Flag : Which salesforce object do you want to fetch data for")
+	var references = flag.Bool("references", false, "Create Flag : set to true if you want to query for records to relate this to. ")
+	var fetchOnly = flag.Bool("fetch", false, "Create Flag : When true will fetch and merge mockaroo data but will not send to Salesforce.")
+	var whoObj = flag.String("who", "", "Create Flag : If creating activities (tasks/events) you need to specify the who object (user|contact)")
+	var whatObj = flag.String("what", "", "Create Flag : If creating activities (tasks/events) you need to specify the what object (any activity enabled obj)")
+	var personAccounts = flag.Bool("personaccounts", false, "Create Flag : Set to true if you want to create person accounts. If this is true it will also set any lookups that reference accounts to reference person accounts (i.e. you might want to create opportunities for person accounts)")
 
 	flag.Parse()
 
@@ -56,51 +56,24 @@ func main() {
 		}
 		wg.Wait()
 	case "create":
-		/*
-			if *mockSchema == "" {
-				log.Printf("You need to specify the mockaroo schema (-schema flag) name for this to operate\n----")
-				printUsage()
-			}
-		*/
-		//csvFile, err := downloadFromMockaroo(cfg, *mockSchema, *count)
 		o := c.SObject(*obj)
-		m := o.Describe()
-		csvFile, err := mockaroo.GetDataForObj(m, cfg, *count)
+		req := &mockaroo.MockarooRequest{
+			SObject:        o.Describe(),
+			Cfg:            cfg,
+			Count:          *count,
+			PersonAccounts: *personAccounts,
+		}
+		csvFile, err := mockaroo.GetDataForObj(req)
 		if err != nil {
 			panic(err)
 		}
-		/*switch *mockSchema {
-		case "case", "opportunity", "contact":
-			if err := updateIds(cfg, csvFile, "account", "accountId", &objIds, c); err != nil {
-				panic(err)
-			}
-			fmt.Printf("Updated to point to random, existing Account IDs")
-
-		case "task", "event":
-			if *whatObj == "" {
-				log.Printf("\n**This will create %d %v records without setting the WhatID field Is this OK?\n", *count, *mockSchema)
-				time.Sleep(time.Second * 5)
-			} else {
-				if err := updateIds(cfg, csvFile, *whatObj, "WhatId", &objIds, c); err != nil {
-					panic(err)
-				}
-			}
-			if *whoObj == "" {
-				log.Printf("\n**This will create %d %v records without setting the WhoID field. Is this OK?\n", *count, *mockSchema)
-				time.Sleep(time.Second * 5)
-			} else {
-				if err := updateIds(cfg, csvFile, *whoObj, "WhoId", &objIds, c); err != nil {
-					panic(err)
-				}
-			}
-		} */
-
 		if *references {
-			fields := (*m)["fields"].([]interface{})
+			fields := (*req.SObject)["fields"].([]interface{})
 			for _, f := range fields {
 				// TODO : handle polymorphic keys better than this...
 				field := f.(map[string]interface{})
 				if strings.EqualFold(*obj, "task") || strings.EqualFold(*obj, "event") {
+					log.Printf("\v%v\v", "handling tasks and events!")
 					if field["relationshipName"] == "Who" {
 						field["referenceTo"] = []string{*whoObj}
 					}
@@ -108,24 +81,28 @@ func main() {
 						field["referenceTo"] = []string{*whatObj}
 					}
 				}
-				if field["referenceTo"].([]interface{}) != nil {
+				// TODO : handle ParentIds
+				// TODO : figure out what this DandBCompany is
+				if field["name"] != "ParentId" && field["name"] != "DandbCompanyId" && field["updateable"].(bool) && field["relationshipName"] != nil {
 					// fetch all the possible Ids for this.
-					_, err := sforce.GetValueForType(cfg, field, c, &objIds)
-					if err != nil {
-						panic(err)
-					}
 					fieldName := field["name"].(string)
 					rt := field["referenceTo"].([]interface{})
 					referenceTo := rt[0].(string)
+					_, ok := objIds.Load(referenceTo)
+					if !ok {
+						// if not, get and cache in the sync.Map
+						ids, err := sforce.GetAllObjIds(cfg, referenceTo, c)
+						if err != nil {
+							panic(err)
+						}
+						objIds.Store(referenceTo, ids)
+					}
 					if err := updateIds(cfg, csvFile, referenceTo, fieldName, &objIds, c); err != nil {
 						panic(err)
 					}
 				}
 			}
-		}
-
-		// always update the owner
-		if err := updateIds(cfg, csvFile, "user", "ownerId", &objIds, c); err != nil {
+		} else if err := updateIds(cfg, csvFile, "user", "ownerId", &objIds, c); err != nil { // always update the owner
 			panic(err)
 		}
 		if !*fetchOnly {

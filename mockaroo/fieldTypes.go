@@ -346,3 +346,81 @@ func NewEmailAddress(n string) *EmailAddress {
 		},
 	}
 }
+
+type FirstName struct {
+	FieldSpec
+}
+
+func NewFirstName(n string) *FirstName {
+	return &FirstName{
+		FieldSpec: FieldSpec{
+			Name:      n,
+			FieldType: "First Name",
+		},
+	}
+}
+
+type LastName struct {
+	FieldSpec
+}
+
+func NewLastName(n string) *LastName {
+	return &LastName{
+		FieldSpec: FieldSpec{
+			Name:      n,
+			FieldType: "Last Name",
+		},
+	}
+}
+
+type JobTitle struct {
+	FieldSpec
+}
+
+func NewJobTitle(n string) *JobTitle {
+	return &JobTitle{
+		FieldSpec: FieldSpec{
+			Name:      n,
+			FieldType: "Job Title",
+		},
+	}
+}
+
+type StockSymbol struct {
+	FieldSpec
+}
+
+func NewStockSymbol(n string) *StockSymbol {
+	return &StockSymbol{
+		FieldSpec: FieldSpec{
+			Name:      n,
+			FieldType: "Stock Symbol",
+		},
+	}
+}
+
+type Latitude struct {
+	FieldSpec
+}
+
+func NewLatitude(n string) *Latitude {
+	return &Latitude{
+		FieldSpec: FieldSpec{
+			Name:      n,
+			FieldType: "Latitude",
+		},
+	}
+}
+
+type Longitude struct {
+	FieldSpec
+}
+
+func NewLongitude(n string) *Longitude {
+	return &Longitude{
+		FieldSpec: FieldSpec{
+			Name:      n,
+			FieldType: "Longitude",
+		},
+	}
+}
