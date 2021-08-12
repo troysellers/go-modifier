@@ -15,9 +15,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/simpleforce/simpleforce"
 	"github.com/troysellers/go-modifier/config"
 	"github.com/troysellers/go-modifier/file"
+	"github.com/troysellers/go-modifier/lorem"
 	"github.com/tzmfreedom/go-soapforce"
 )
 
@@ -73,6 +75,7 @@ type UpsertJob struct {
 	SFEndpoint   string  // the salesforce endpoint to use
 	ApiVersion   float32 // the Salesforce api version
 	ModifiedFile string  // file on disk of modified data
+	Cfg          *config.Config
 }
 
 // creates the bulk ingest job
@@ -182,6 +185,8 @@ func getField(fname string, fields []interface{}) map[string]interface{} {
 */
 func (qj *QueryJob) ModifyData(cfg *config.Config, objIds *sync.Map, c *simpleforce.Client) error {
 
+	log.Println("\n\nwe are trying to modify things")
+
 	// for each header (field name)
 	for i, fieldName := range qj.QueryData[0] {
 		// get the SF metadata for this field
@@ -240,7 +245,7 @@ func GetBulkQuery(cfg *config.Config, c *simpleforce.Client, q string) (QueryJob
 	}
 	var err error
 	queryJob.FileName = fmt.Sprintf("%v-query.csv", queryJob.BulkJob.Object)
-	queryJob.FilePath, err = file.BuildFilePath(queryJob.FileName)
+	queryJob.FilePath, err = file.BuildFilePath(queryJob.FileName, cfg)
 	if err != nil {
 		return *queryJob, err
 	}
@@ -267,6 +272,7 @@ func UploadCSVToSalesforce(cfg *config.Config, c *simpleforce.Client, csvfile st
 		SFEndpoint:   c.GetLoc(),
 		ApiVersion:   cfg.SF.ApiVersion,
 		ModifiedFile: csvfile,
+		Cfg:          cfg,
 		Create: BulkUpsertJobCreate{
 			Object:              obj,
 			ExternalIdFieldName: "Id",
@@ -450,7 +456,11 @@ func (uj *UpsertJob) GetJobStatus() error {
 	log.Printf("Job %s [%s on %s] complete in %dms\n", uj.Job.Id, uj.Job.Operation, uj.Job.Object, uj.Job.TotalProcessingTime)
 	log.Printf("Total Records %d\n", uj.Job.NumberRecordsProcessed)
 	log.Printf("Records Failed %d\n", uj.Job.NumberRecordsFailed)
-
+	if uj.Job.NumberRecordsFailed > 0 {
+		if err := uj.fetchFailedRecords(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -469,7 +479,7 @@ func (uj *UpsertJob) fetchFailedRecords() error {
 	if err != nil {
 		return err
 	}
-	fPath, err := file.BuildFilePath("unsuccessful.csv")
+	fPath, err := file.BuildFilePath("unsuccessful.csv", uj.Cfg)
 	if err != nil {
 		return err
 	}
@@ -539,21 +549,33 @@ func doHttp(url string, sid string, body []byte, method string, headers map[stri
 
 func GetValueForType(cfg *config.Config, f map[string]interface{}, c *simpleforce.Client, objIds *sync.Map) (interface{}, error) {
 
-	// if can be empty, retun empty on a 10%
+	/* if can be empty, retun empty on a 10%
 	if f["nillable"].(bool) && rand.Intn(10) < 2 {
 		return nil, nil
-	}
+	}*/
 	switch f["type"].(string) {
 	case "id":
 		return nil, fmt.Errorf("id values are not supported for generation")
 	case "boolean":
 		return rand.Intn(10) >= 5, nil
 	case "string", "encryptedstring":
-		return "broken", nil
-		/*
-			l := int(f["length"].(float64))
-			return lorem.Word(1, rand.Intn(l)), nil
-		*/
+		if f["name"].(string) == "State" {
+			return "CA", nil
+		}
+		if f["name"].(string) == "Country" {
+			return "Australia", nil
+		}
+		if f["name"].(string) == "FirstName" {
+			return "RestoreTest", nil
+		}
+		if f["name"].(string) == "LastName" {
+			return "RestoreTest", nil
+		}
+		if f["unique"].(bool) {
+			return uuid.New(), nil
+		}
+		l := int(f["length"].(float64))
+		return lorem.Word(1, rand.Intn(l)), nil
 	case "datetime", "date":
 		d := time.Now()
 		d = d.AddDate(0, rand.Intn(12), rand.Intn(30))
@@ -582,13 +604,14 @@ func GetValueForType(cfg *config.Config, f map[string]interface{}, c *simpleforc
 		s := f["scale"].(float64)
 		return rand.Intn(int(p)) / int(math.Pow10(int(s))), nil
 	case "email":
-		return "broken@email.co", nil
-		//return lorem.Email(), nil
+		return lorem.Email(), nil
 	case "location":
 		return nil, fmt.Errorf("location value not implemented yet")
 	case "percent":
-		return 0, nil
-		//return float32(rand.Intn(100)), nil
+		return float32(rand.Intn(100)), nil
+	case "int":
+		d := int(f["digits"].(float64))
+		return rand.Intn(int(math.Pow10(d))), nil
 	case "phone":
 		return "000000000", nil
 		//return nil, fmt.Errorf("phone value not implemented yet")
@@ -606,11 +629,11 @@ func GetValueForType(cfg *config.Config, f map[string]interface{}, c *simpleforc
 				return s[:l], nil
 			} */
 		return "broken", nil
+
 	case "time":
 		return nil, fmt.Errorf("phone value not implemented yet")
 	case "url":
-		return "www.broken.url", nil
-		//return lorem.Url(), nil
+		return lorem.Url(), nil
 	}
 
 	return nil, nil

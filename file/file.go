@@ -7,6 +7,8 @@ import (
 	"math/rand"
 	"os"
 	"strings"
+
+	"github.com/troysellers/go-modifier/config"
 )
 
 // reads the entire file into a byte []
@@ -19,12 +21,17 @@ func GetCSVBytes(file string) ([]byte, error) {
 	return f, nil
 }
 
-func BuildFilePath(f string) (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
+func BuildFilePath(f string, cfg *config.Config) (string, error) {
+	dir := cfg.Mockaroo.DataDir
+	if dir == "" {
+		var err error
+		dir, err = os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
 	}
-	return fmt.Sprintf("%v/tmpdata/%v", home, f), nil
+
+	return fmt.Sprintf("%v/%v", dir, f), nil
 }
 
 // takes the data and writes is as a CSV to the filename

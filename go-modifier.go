@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -48,6 +49,10 @@ func main() {
 	var objIds sync.Map
 
 	switch *op {
+	case "upload":
+		uploadToSF("/tmp/mockaroo-data/lead-update.csv", cfg, c)
+	case "getstuff":
+		getstuff()
 	case "update":
 		var wg sync.WaitGroup
 		for _, q := range cfg.SF.Queries {
@@ -57,21 +62,23 @@ func main() {
 		wg.Wait()
 	case "create":
 		o := c.SObject(*obj)
-		req := &mockaroo.MockarooRequest{
+		mr := &mockaroo.MockarooRequest{
 			SObject:        o.Describe(),
 			Cfg:            cfg,
 			Count:          *count,
 			PersonAccounts: *personAccounts,
 		}
-		csvFile, err := mockaroo.GetDataForObj(req)
-		if err != nil {
+		if err := mr.GetDataForObj(); err != nil {
 			panic(err)
 		}
+		// TODO : check that we haven't excluded reference ids in the schema creations
 		if *references {
-			fields := (*req.SObject)["fields"].([]interface{})
+			fields := mr.Schema
 			for _, f := range fields {
+				log.Printf("MockField %v\n", f.GetFieldSpec().Name)
 				// TODO : handle polymorphic keys better than this...
-				field := f.(map[string]interface{})
+				field := f.GetFieldSpec().SforceMeta
+
 				if strings.EqualFold(*obj, "task") || strings.EqualFold(*obj, "event") {
 					log.Printf("\v%v\v", "handling tasks and events!")
 					if field["relationshipName"] == "Who" {
@@ -81,13 +88,18 @@ func main() {
 						field["referenceTo"] = []string{*whatObj}
 					}
 				}
-				// TODO : handle ParentIds
-				// TODO : figure out what this DandBCompany is
-				if field["name"] != "ParentId" && field["name"] != "DandbCompanyId" && field["updateable"].(bool) && field["relationshipName"] != nil {
+				// look for the relationship fields that have been included in the schema
+				if field["relationshipName"] != nil {
 					// fetch all the possible Ids for this.
 					fieldName := field["name"].(string)
 					rt := field["referenceTo"].([]interface{})
-					referenceTo := rt[0].(string)
+					var referenceTo string
+					if fieldName == "OwnerId" {
+						referenceTo = "User"
+					} else {
+						referenceTo = rt[0].(string)
+					}
+
 					_, ok := objIds.Load(referenceTo)
 					if !ok {
 						// if not, get and cache in the sync.Map
@@ -97,17 +109,17 @@ func main() {
 						}
 						objIds.Store(referenceTo, ids)
 					}
-					if err := updateIds(cfg, csvFile, referenceTo, fieldName, &objIds, c); err != nil {
+					if err := updateIds(cfg, mr.FilePath, referenceTo, fieldName, &objIds, c); err != nil {
 						panic(err)
 					}
 				}
 			}
-		} else if err := updateIds(cfg, csvFile, "user", "ownerId", &objIds, c); err != nil { // always update the owner
+		} else if err := updateIds(cfg, mr.FilePath, "user", "ownerId", &objIds, c); err != nil { // always update the owner
 			panic(err)
 		}
 		if !*fetchOnly {
 			// write data into Salesforce
-			if err := sforce.UploadCSVToSalesforce(cfg, c, csvFile, *obj); err != nil {
+			if err := sforce.UploadCSVToSalesforce(cfg, c, mr.FilePath, *obj); err != nil {
 				panic(err)
 			}
 		}
@@ -155,18 +167,6 @@ func printUsage() {
 	log.Println("\t\twill download 100 contact records from mockaroo and load them into salesforce.")
 	os.Exit(1)
 }
-
-/*
-func downloadFromMockaroo(cfg *config.Config, s string, r int) (string, error) {
-
-	log.Printf("downloading %v", s)
-	file, err := gen.GetDataFromMockaroo(&cfg.Mockaroo, s, r)
-	if err != nil {
-		return "", err
-	}
-	return file, nil
-}
-*/
 func modify(q string, cfg *config.Config, wg *sync.WaitGroup, queryOnly bool, c *simpleforce.Client, objIds *sync.Map) {
 
 	defer wg.Done()
@@ -175,24 +175,78 @@ func modify(q string, cfg *config.Config, wg *sync.WaitGroup, queryOnly bool, c 
 	if err != nil {
 		panic(err)
 	}
-
+	// change the fields in the data
+	// depending on the query, this can take some time if it is populating referenced fields randomly.
+	if err := queryJob.ModifyData(cfg, objIds, c); err != nil {
+		panic(err)
+	}
+	// write the CSV back to file
+	fPath, err := file.BuildFilePath(fmt.Sprintf("%v-query-modified.csv", queryJob.BulkJob.Object), cfg)
+	if err != nil {
+		panic(err)
+	}
+	d2, err := file.WriteCsv(fPath, queryJob.QueryData)
+	if err != nil {
+		panic(err)
+	}
 	if !queryOnly {
-		// change the fields in the data
-		// depending on the query, this can take some time if it is populating referenced fields randomly.
-		if err := queryJob.ModifyData(cfg, objIds, c); err != nil {
-			panic(err)
-		}
-		// write the CSV back to file
-		fPath, err := file.BuildFilePath(fmt.Sprintf("%v-query-modified.csv", queryJob.BulkJob.Object))
-		if err != nil {
-			panic(err)
-		}
-		d2, err := file.WriteCsv(fPath, queryJob.QueryData)
-		if err != nil {
-			panic(err)
-		}
+
 		if err := sforce.UploadCSVToSalesforce(cfg, c, d2, queryJob.BulkJob.Object); err != nil {
 			panic(err)
 		}
 	}
+}
+
+func uploadToSF(f string, cfg *config.Config, c *simpleforce.Client) {
+	if err := sforce.UploadCSVToSalesforce(cfg, c, f, "Lead"); err != nil {
+		panic(err)
+	}
+}
+
+func getstuff() {
+	schema := []mockaroo.FieldSpecInterface{}
+	firstName := make(map[string]interface{})
+	firstName["name"] = "FirstName"
+	schema = append(schema, mockaroo.NewFirstName(firstName))
+
+	lastName := make(map[string]interface{})
+	lastName["name"] = "LastName"
+	schema = append(schema, mockaroo.NewLastName(lastName))
+
+	company := make(map[string]interface{})
+	company["name"] = "Company"
+	schema = append(schema, mockaroo.NewFakeCompanyName(company))
+
+	b, err := json.Marshal(schema)
+	if err != nil {
+		panic(err)
+	}
+	url := fmt.Sprintf("https://api.mockaroo.com/api/generate.csv?key=%v&count=%d&include_header=false", "c04c9a30", 5000)
+	filePath := "/tmp/mockaroo-data/names.csv"
+
+	f, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		panic(err)
+	}
+	defer f.Close()
+	if _, err = f.Write([]byte("FirstName,LastName, Company\n")); err != nil {
+		panic(err)
+	}
+	i := 0
+	for {
+
+		_, respbytes, err := mockaroo.DoHttp(url, "", b, "POST", nil)
+		if err != nil {
+			panic(err)
+		}
+		if _, err = f.Write(respbytes); err != nil {
+			panic(err)
+		}
+		i++
+		fmt.Printf("fetched %d\n", 5000*i)
+		if i == 200 {
+			break
+		}
+	}
+	log.Printf("written to %v\n", filePath)
 }

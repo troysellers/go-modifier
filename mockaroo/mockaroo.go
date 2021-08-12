@@ -27,27 +27,29 @@ type MockarooRequest struct {
 	Cfg            *config.Config
 	Count          int
 	PersonAccounts bool
+	Schema         []FieldSpecInterface
+	FilePath       string
 }
 
 // fetches mockaroo CSV for the object specified.
 // returns a string that is the full path
-func GetDataForObj(req *MockarooRequest) (string, error) {
+func (r *MockarooRequest) GetDataForObj() error {
 
-	mockFields := getSchemaForObjectType(req.SObject, req.PersonAccounts)
-	b, err := json.Marshal(mockFields)
+	r.Schema = getSchemaForObjectType(r.SObject, r.PersonAccounts)
+	b, err := json.Marshal(r.Schema)
 	if err != nil {
-		return "", err
+		return err
 	}
-	url := fmt.Sprintf("https://api.mockaroo.com/api/generate.csv?key=%v&count=%d", req.Cfg.Mockaroo.Key, req.Count)
+	url := fmt.Sprintf("https://api.mockaroo.com/api/generate.csv?key=%v&count=%d", r.Cfg.Mockaroo.Key, r.Count)
 	_, respbytes, err := doHttp(url, "", b, "POST", nil)
 	if err != nil {
-		return "", err
+		return err
 	}
-	fName := fmt.Sprintf("%v%v.csv", req.Cfg.Mockaroo.DataDir, (*req.SObject)["name"])
-	if err = os.WriteFile(fName, respbytes, 0777); err != nil {
-		return "", nil
+	r.FilePath = fmt.Sprintf("%v%v.csv", r.Cfg.Mockaroo.DataDir, (*r.SObject)["name"])
+	if err = os.WriteFile(r.FilePath, respbytes, 0777); err != nil {
+		return err
 	}
-	return fName, nil
+	return nil
 }
 
 // captures top level logic on whether the field data should
@@ -66,69 +68,65 @@ func shouldGetData(f map[string]interface{}) bool {
 	if strings.Count(f["name"].(string), "__") == 2 {
 		return false
 	}
-	// we don't support parent relationships yet
-	if f["name"].(string) == "ParentId" {
-		return false
-	}
 	return true
 }
 
-func getMockTypeForField(f map[string]interface{}) interface{} {
+func getMockTypeForField(f map[string]interface{}) FieldSpecInterface {
 
 	// get the mock type first
-	var mockType interface{}
+	var mockType FieldSpecInterface
 	switch f["type"].(string) {
 	case "id":
 		return nil
 	case "boolean":
-		mockType = NewBoolean(f["name"].(string))
+		mockType = NewBoolean(f)
 	case "string", "encryptedstring":
-		if f["externalId"].(bool) {
-			e := NewGUID(f["name"].(string))
+		if f["externalId"].(bool) || f["unique"].(bool) {
+			e := NewGUID(f)
 			e.Formula = fmt.Sprintf("this[0,%d]", int(f["length"].(float64)))
 			mockType = e
 		} else {
-			w := NewWords(f["name"].(string))
+			w := NewWords(f)
 			w.Formula = fmt.Sprintf("this[0,%d]", int(f["length"].(float64)))
 			mockType = w
 		}
 	case "datetime", "date":
-		d := NewDatetime(f["name"].(string))
+		d := NewDatetime(f)
 		mockType = d
 	case "reference":
-		w := NewWords(f["name"].(string))
+		w := NewWords(f)
 		w.Max = 0
 		w.Min = 0
 		mockType = w
 	case "currency", "double", "percent", "int":
 		p := int(f["precision"].(float64))
 		s := int(f["scale"].(float64))
-		n := NewNumber(f["name"].(string))
+		n := NewNumber(f)
 		n.Decimals = s
 		n.Max = p*10 - 1
 		mockType = n
 	case "email":
-		e := NewEmailAddress(f["name"].(string))
+		e := NewEmailAddress(f)
 		mockType = e
 	case "phone":
-		p := NewPhone(f["name"].(string))
+		p := NewPhone(f)
 		mockType = p
 	case "picklist", "multipicklist":
 		plv := f["picklistValues"].([]interface{})
-		l := NewCustomList(f["name"].(string))
+		l := NewCustomList(f)
 		for _, v := range plv {
 			val := v.(map[string]interface{})
 			l.Values = append(l.Values, val["value"].(string))
 		}
 		mockType = l
 	case "textarea":
-		t := NewSentences(f["name"].(string))
+		t := NewSentences(f)
 		t.Max = 100
 		t.Min = 1
 		t.Formula = fmt.Sprintf("this[0,%d]", int(f["length"].(float64)))
 		mockType = t
 	case "url":
-		u := NewURL(f["name"].(string))
+		u := NewURL(f)
 		mockType = u
 	default:
 		log.Printf("%v type has not been mapped to a mockaroo data type yet", f["type"])
@@ -140,15 +138,20 @@ func getMockTypeForField(f map[string]interface{}) interface{} {
 
 // returns a mocktype that is ideal for the object
 // or defaults for custom object
-func getSchemaForObjectType(obj *simpleforce.SObjectMeta, personAccounts bool) []interface{} {
+func getSchemaForObjectType(obj *simpleforce.SObjectMeta, personAccounts bool) []FieldSpecInterface {
 
 	var fields = (*obj)["fields"].([]interface{})
 	switch (*obj)["name"].(string) {
 	case "Account":
-		log.Println("getting data for the account")
 		return getSchemaForAccount(fields, personAccounts)
 	case "Contact":
 		return getSchemaForContact(fields, personAccounts)
+	case "Case":
+		return getSchemaForCase(fields, personAccounts)
+	case "Opportunity":
+		return getSchemaForOpportunity(fields, personAccounts)
+	case "Lead":
+		return getSchmeaForLead(fields, personAccounts)
 	default:
 		return getSchemaForGenericObj(fields)
 	}
@@ -156,9 +159,9 @@ func getSchemaForObjectType(obj *simpleforce.SObjectMeta, personAccounts bool) [
 
 // returns the mockaroo schema for any object we haven't
 // specifically coded for.
-func getSchemaForGenericObj(fields []interface{}) []interface{} {
+func getSchemaForGenericObj(fields []interface{}) []FieldSpecInterface {
 
-	var mockFields []interface{}
+	var mockFields []FieldSpecInterface
 	for _, f := range fields {
 		field := f.(map[string]interface{})
 		if shouldGetData(field) {
@@ -178,6 +181,10 @@ func hasBeenPopulated(fieldName string, schema []FieldSpec) bool {
 		}
 	}
 	return false
+}
+
+func DoHttp(url string, sid string, body []byte, method string, headers map[string]string) (http.Header, []byte, error) {
+	return doHttp(url, sid, body, method, headers)
 }
 
 // returns the response body bytes if we had a 200 response.
