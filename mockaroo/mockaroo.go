@@ -42,12 +42,18 @@ func (r *MockarooRequest) GetDataForObj() error {
 		return err
 	}
 	url := fmt.Sprintf("https://api.mockaroo.com/api/generate.csv?key=%v&count=%d", r.Cfg.Mockaroo.Key, r.Count)
+
 	_, respbytes, err := doHttp(url, "", b, "POST", nil)
 	if err != nil {
 		return err
 	}
 	r.FilePath = fmt.Sprintf("%v%v.csv", r.Cfg.Mockaroo.DataDir, (*r.SObject)["name"])
-	if err = os.WriteFile(r.FilePath, respbytes, 0777); err != nil {
+	f, err := os.Create(r.FilePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	if _, err := f.Write(respbytes); err != nil {
 		return err
 	}
 	return nil

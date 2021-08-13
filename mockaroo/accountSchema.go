@@ -63,13 +63,16 @@ func getSchemaForAccount(fields []interface{}, personAccounts bool) []types.IFie
 	return adjusted
 }
 
+/*
+	function returns a collection of fields that represent either a Company or Person Account.
+*/
 func handlePersonAccounts(fields []types.IField, personAccounts bool) []types.IField {
 
 	var newFields []types.IField
 	for _, f := range fields {
 		if personAccounts && (strings.Contains(f.GetField().Name, "__pc") || strings.Index(f.GetField().Name, "Person") == 0) {
 			newFields = append(newFields, f)
-		} else {
+		} else if !personAccounts && !(strings.Contains(f.GetField().Name, "__pc") || strings.Index(f.GetField().Name, "Person") == 0) {
 			newFields = append(newFields, f)
 		}
 	}
