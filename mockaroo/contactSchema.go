@@ -14,6 +14,8 @@ func getSchemaForContact(fields []interface{}, personAccounts bool) []types.IFie
 		if shouldGetData(field) {
 			var mf types.IField
 			switch field["name"].(string) {
+			case "ParentId", "IndividualId", "ReportsToId":
+				log.Printf("Skipping %v - yet to be handled \n", field)
 			case "LastName":
 				mf = types.NewLastName(field)
 			case "FirstName":
@@ -34,8 +36,6 @@ func getSchemaForContact(fields []interface{}, personAccounts bool) []types.IFie
 				mf = types.NewCountry(field)
 			case "MailingPostalCode", "OtherPostalCode":
 				mf = types.NewLongitude(field)
-			case "ParentId":
-				log.Printf("Skipping %v - yet to be handled \n", field)
 			default:
 				mf = getMockTypeForField(field)
 			}
@@ -45,6 +45,9 @@ func getSchemaForContact(fields []interface{}, personAccounts bool) []types.IFie
 				// when inserting into salesforce.
 				l := int(field["length"].(float64))
 				if l > 0 {
+					if l > 1000 { //lets not go crazy with text
+						l = 1000
+					}
 					mf.SetFormula(fmt.Sprintf("this[0,%d]", l))
 				}
 				mockFields = append(mockFields, mf)

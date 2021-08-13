@@ -3,10 +3,24 @@ package main
 import (
 	"encoding/csv"
 	"log"
+	"math"
 	"math/rand"
 	"os"
 	"testing"
 )
+
+func TestMod(t *testing.T) {
+
+	c := 20000
+	c1 := c / 5000
+	m := int(math.Mod(float64(c), 5000))
+
+	for i := 1; i <= c1; i++ {
+		log.Printf("get %d", 5000*i)
+	}
+	log.Printf("get the remaining %d", m)
+
+}
 
 func TestNothing(t *testing.T) {
 	names := getData("/tmp/mockaroo-data/names.csv")

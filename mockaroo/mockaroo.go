@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"os"
 	"strings"
@@ -41,18 +42,37 @@ func (r *MockarooRequest) GetDataForObj() error {
 	if err != nil {
 		return err
 	}
-	url := fmt.Sprintf("https://api.mockaroo.com/api/generate.csv?key=%v&count=%d", r.Cfg.Mockaroo.Key, r.Count)
-
-	_, respbytes, err := doHttp(url, "", b, "POST", nil)
-	if err != nil {
-		return err
-	}
 	r.FilePath = fmt.Sprintf("%v%v.csv", r.Cfg.Mockaroo.DataDir, (*r.SObject)["name"])
 	f, err := os.Create(r.FilePath)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
+	header := true
+	// mockaroo has a 5000 record api limit.
+	mockLimit := 10
+	for i := 1; i <= r.Count/mockLimit; i++ {
+		log.Printf("fetching %d to %d dummy data\n", (i-1)*mockLimit, i*mockLimit)
+		fetchMockarooBatch(r.Cfg.Mockaroo.Key, mockLimit, f, b, header)
+		if i == 1 {
+			header = false
+		}
+	}
+	// mod 5000 gives us the remaining records to get.
+	if int(math.Mod(float64(r.Count), float64(mockLimit))) > 0 {
+		log.Printf("fetching %d dummy data\n", int(math.Mod(float64(r.Count), float64(mockLimit))))
+		fetchMockarooBatch(r.Cfg.Mockaroo.Key, int(math.Mod(float64(r.Count), float64(mockLimit))), f, b, header)
+	}
+	return nil
+}
+
+func fetchMockarooBatch(key string, count int, f *os.File, schema []byte, header bool) error {
+	url := fmt.Sprintf("https://api.mockaroo.com/api/generate.csv?key=%v&count=%d&include_header=%v", key, count, header)
+	_, respbytes, err := doHttp(url, "", schema, "POST", nil)
+	if err != nil {
+		return err
+	}
+	log.Printf("We have %d bytes for data\n", len(respbytes))
 	if _, err := f.Write(respbytes); err != nil {
 		return err
 	}
@@ -64,7 +84,6 @@ func (r *MockarooRequest) GetDataForObj() error {
 // Returns true if all these conditions are satisfied
 // - updateable = true
 // - doesn't belong to a managed package (i.e. name doesn't contain two occurences of '__' )
-// - field isn't self referencing (i.e. name != 'ParentId')
 func shouldGetData(f map[string]interface{}) bool {
 
 	// we only want to get data for fields we can update
@@ -169,19 +188,6 @@ func getSchemaForGenericObj(fields []interface{}) []types.IField {
 	return mockFields
 }
 
-// returns true if the string is set as the Name value of one of the
-// schema elements passed in the array
-/*
-func hasBeenPopulated(fieldName string, schema []types.IField) bool {
-
-	for _, s := range schema {
-		if s.Name == fieldName {
-			return true
-		}
-	}
-	return false
-}*/
-
 func DoHttp(url string, sid string, body []byte, method string, headers map[string]string) (http.Header, []byte, error) {
 	return doHttp(url, sid, body, method, headers)
 }
@@ -190,7 +196,7 @@ func DoHttp(url string, sid string, body []byte, method string, headers map[stri
 // errors for all others.
 func doHttp(url string, sid string, body []byte, method string, headers map[string]string) (http.Header, []byte, error) {
 
-	log.Printf("METHOD : %v \nURL : %v\n", method, url)
+	log.Printf("%v : %v\n", method, url)
 	client := &http.Client{}
 	var r *bytes.Reader
 	if body != nil {
@@ -210,6 +216,7 @@ func doHttp(url string, sid string, body []byte, method string, headers map[stri
 		return nil, nil, err
 	}
 	defer res.Body.Close()
+	log.Println("reading the bytes")
 	bytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, nil, err

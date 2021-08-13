@@ -25,17 +25,21 @@ func init() {
 func main() {
 
 	var op = flag.String("op", "", "create | update")
-	var query = flag.Bool("query", true, "Update Flag : Run the Salesforce query only to test what would be modified")
-	var count = flag.Int("count", 10, "Create Flag : Defines how many records need to be created when using the mockaroo generate")
-	var obj = flag.String("obj", "", "Create Flag : Which salesforce object do you want to fetch data for")
-	var references = flag.Bool("references", true, "Create Flag : set to true if you want to query for records to relate this to. ")
-	var fetchOnly = flag.Bool("fetch", false, "Create Flag : When true will fetch and merge mockaroo data but will not send to Salesforce.")
-	var whoObj = flag.String("who", "", "Create Flag : If creating activities (tasks/events) you need to specify the who object (user|contact)")
-	var whatObj = flag.String("what", "", "Create Flag : If creating activities (tasks/events) you need to specify the what object (any activity enabled obj)")
-	var personAccounts = flag.Bool("personaccounts", false, "Create Flag : Set to true if you want to create person accounts. If this is true it will also set any lookups that reference accounts to reference person accounts (i.e. you might want to create opportunities for person accounts)")
+	var query = flag.Bool("query", true, "(update) run the query only, do not execute the update in Salesforce")
+	var count = flag.Int("count", 10, "(create) how many records to get from mockaroo")
+	var obj = flag.String("obj", "", "(create) specify which salesforce object do you want to create")
+	var references = flag.Bool("references", true, "(create) set to true if you want to populate reference fields to random data in the Salesforce org. ")
+	var fetchOnly = flag.Bool("fetch", false, "(create) When true will fetch and merge mockaroo data but will not send to Salesforce.")
+	var whoObj = flag.String("who", "", "(create) If creating activities (tasks/events) you need to specify the who object (user|contact)")
+	var whatObj = flag.String("what", "", "(create) If creating activities (tasks/events) you need to specify the what object (any activity enabled obj)")
+	var personAccounts = flag.Bool("personaccounts", false, "(create) Set to true if you want to create person accounts (or relate other objects to person accounts).")
 
 	flag.Parse()
 
+	if *op == "" {
+		flag.PrintDefaults()
+		os.Exit(1)
+	}
 	cfg := config.NewConfig()
 	c, err := sforce.NewRestClient(&cfg.SF)
 	if err != nil {
@@ -45,8 +49,6 @@ func main() {
 	var objIds sync.Map
 
 	switch *op {
-	case "upload":
-		uploadToSF("/tmp/mockaroo-data/lead-update.csv", cfg, c)
 	case "update":
 		var wg sync.WaitGroup
 		for _, q := range cfg.SF.Queries {
@@ -63,6 +65,7 @@ func main() {
 			Count:          *count,
 			PersonAccounts: *personAccounts,
 		}
+
 		if err := mr.GetDataForObj(); err != nil {
 			panic(err)
 		}
@@ -148,19 +151,6 @@ func updateIds(cfg *config.Config, f string, obj string, col string, objIds *syn
 	return nil
 }
 
-func printUsage() {
-	log.Println("Usage: ")
-	log.Println("\t1 '>go-modifier update' use QUERIES in .env file to modify existing salesforce data.")
-	log.Println("\t\t-query=false flag to upload back to Salesforce.")
-	log.Println("\t2 '>go-modifier create' use mockaroo to add new data in Salesforce.")
-	log.Println("\t\t-obj is required. what salesforce object to generate")
-	log.Println("\t\t-count will set number of records to generate.")
-	log.Println("\t\t-fetch=true will build the file but not send to salesforce.")
-	log.Println("\t\t-personaccounts will generate personaccounts instead of business accounts")
-	log.Println("\t\t-references=false will stop the system from randomly populating ID fields for related fields it finds.")
-	flag.PrintDefaults()
-	os.Exit(1)
-}
 func modify(q string, cfg *config.Config, wg *sync.WaitGroup, queryOnly bool, c *simpleforce.Client, objIds *sync.Map) {
 
 	defer wg.Done()
@@ -188,11 +178,5 @@ func modify(q string, cfg *config.Config, wg *sync.WaitGroup, queryOnly bool, c 
 		if err := sforce.UploadCSVToSalesforce(cfg, c, d2, queryJob.BulkJob.Object); err != nil {
 			panic(err)
 		}
-	}
-}
-
-func uploadToSF(f string, cfg *config.Config, c *simpleforce.Client) {
-	if err := sforce.UploadCSVToSalesforce(cfg, c, f, "Lead"); err != nil {
-		panic(err)
 	}
 }
