@@ -6,17 +6,19 @@ import (
 	"log"
 	"os"
 	"testing"
+
+	"github.com/troysellers/go-modifier/mockaroo/types"
 )
 
 func TestNothing(t *testing.T) {
 
-	schema := []FieldSpecInterface{}
+	schema := []types.IField{}
 	firstName := make(map[string]interface{})
 	firstName["name"] = "FirstName"
-	schema = append(schema, NewFirstName(firstName))
+	schema = append(schema, types.NewFirstName(firstName))
 	lastName := make(map[string]interface{})
 	lastName["name"] = "LastName"
-	schema = append(schema, NewLastName(lastName))
+	schema = append(schema, types.NewLastName(lastName))
 	b, err := json.Marshal(schema)
 	if err != nil {
 		t.Fatal(err)

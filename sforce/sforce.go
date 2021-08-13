@@ -559,20 +559,11 @@ func GetValueForType(cfg *config.Config, f map[string]interface{}, c *simpleforc
 	case "boolean":
 		return rand.Intn(10) >= 5, nil
 	case "string", "encryptedstring":
-		if f["name"].(string) == "State" {
-			return "CA", nil
-		}
-		if f["name"].(string) == "Country" {
-			return "Australia", nil
-		}
-		if f["name"].(string) == "FirstName" {
-			return "RestoreTest", nil
-		}
-		if f["name"].(string) == "LastName" {
-			return "RestoreTest", nil
-		}
 		if f["unique"].(bool) {
 			return uuid.New(), nil
+		}
+		if f["name"].(string) != "" {
+			return "RestoreME!", nil
 		}
 		l := int(f["length"].(float64))
 		return lorem.Word(1, rand.Intn(l)), nil

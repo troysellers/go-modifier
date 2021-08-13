@@ -12,6 +12,7 @@ import (
 
 	"github.com/simpleforce/simpleforce"
 	"github.com/troysellers/go-modifier/config"
+	"github.com/troysellers/go-modifier/mockaroo/types"
 )
 
 //Output formats
@@ -27,7 +28,7 @@ type MockarooRequest struct {
 	Cfg            *config.Config
 	Count          int
 	PersonAccounts bool
-	Schema         []FieldSpecInterface
+	Schema         []types.IField
 	FilePath       string
 }
 
@@ -71,63 +72,54 @@ func shouldGetData(f map[string]interface{}) bool {
 	return true
 }
 
-func getMockTypeForField(f map[string]interface{}) FieldSpecInterface {
+func getMockTypeForField(f map[string]interface{}) types.IField {
 
 	// get the mock type first
-	var mockType FieldSpecInterface
+	var mockType types.IField
 	switch f["type"].(string) {
 	case "id":
 		return nil
 	case "boolean":
-		mockType = NewBoolean(f)
+		mockType = types.NewBoolean(f)
 	case "string", "encryptedstring":
 		if f["externalId"].(bool) || f["unique"].(bool) {
-			e := NewGUID(f)
-			e.Formula = fmt.Sprintf("this[0,%d]", int(f["length"].(float64)))
-			mockType = e
+			mockType = types.NewGUID(f)
 		} else {
-			w := NewWords(f)
-			w.Formula = fmt.Sprintf("this[0,%d]", int(f["length"].(float64)))
-			mockType = w
+			mockType = types.NewWords(f)
 		}
 	case "datetime", "date":
-		d := NewDatetime(f)
-		mockType = d
+		mockType = types.NewDatetime(f)
 	case "reference":
-		w := NewWords(f)
+		w := types.NewWords(f)
 		w.Max = 0
 		w.Min = 0
 		mockType = w
 	case "currency", "double", "percent", "int":
 		p := int(f["precision"].(float64))
 		s := int(f["scale"].(float64))
-		n := NewNumber(f)
+		n := types.NewNumber(f)
 		n.Decimals = s
 		n.Max = p*10 - 1
 		mockType = n
 	case "email":
-		e := NewEmailAddress(f)
-		mockType = e
+		mockType = types.NewEmailAddress(f)
 	case "phone":
-		p := NewPhone(f)
-		mockType = p
+		mockType = types.NewPhone(f)
 	case "picklist", "multipicklist":
 		plv := f["picklistValues"].([]interface{})
-		l := NewCustomList(f)
+		l := types.NewCustomList(f)
 		for _, v := range plv {
 			val := v.(map[string]interface{})
 			l.Values = append(l.Values, val["value"].(string))
 		}
 		mockType = l
 	case "textarea":
-		t := NewSentences(f)
+		t := types.NewSentences(f)
 		t.Max = 100
 		t.Min = 1
-		t.Formula = fmt.Sprintf("this[0,%d]", int(f["length"].(float64)))
 		mockType = t
 	case "url":
-		u := NewURL(f)
-		mockType = u
+		mockType = types.NewURL(f)
 	default:
 		log.Printf("%v type has not been mapped to a mockaroo data type yet", f["type"])
 		return nil
@@ -138,7 +130,7 @@ func getMockTypeForField(f map[string]interface{}) FieldSpecInterface {
 
 // returns a mocktype that is ideal for the object
 // or defaults for custom object
-func getSchemaForObjectType(obj *simpleforce.SObjectMeta, personAccounts bool) []FieldSpecInterface {
+func getSchemaForObjectType(obj *simpleforce.SObjectMeta, personAccounts bool) []types.IField {
 
 	var fields = (*obj)["fields"].([]interface{})
 	switch (*obj)["name"].(string) {
@@ -159,9 +151,9 @@ func getSchemaForObjectType(obj *simpleforce.SObjectMeta, personAccounts bool) [
 
 // returns the mockaroo schema for any object we haven't
 // specifically coded for.
-func getSchemaForGenericObj(fields []interface{}) []FieldSpecInterface {
+func getSchemaForGenericObj(fields []interface{}) []types.IField {
 
-	var mockFields []FieldSpecInterface
+	var mockFields []types.IField
 	for _, f := range fields {
 		field := f.(map[string]interface{})
 		if shouldGetData(field) {
@@ -173,7 +165,8 @@ func getSchemaForGenericObj(fields []interface{}) []FieldSpecInterface {
 
 // returns true if the string is set as the Name value of one of the
 // schema elements passed in the array
-func hasBeenPopulated(fieldName string, schema []FieldSpec) bool {
+/*
+func hasBeenPopulated(fieldName string, schema []types.IField) bool {
 
 	for _, s := range schema {
 		if s.Name == fieldName {
@@ -181,7 +174,7 @@ func hasBeenPopulated(fieldName string, schema []FieldSpec) bool {
 		}
 	}
 	return false
-}
+}*/
 
 func DoHttp(url string, sid string, body []byte, method string, headers map[string]string) (http.Header, []byte, error) {
 	return doHttp(url, sid, body, method, headers)

@@ -14,6 +14,7 @@ import (
 	"github.com/troysellers/go-modifier/config"
 	"github.com/troysellers/go-modifier/file"
 	"github.com/troysellers/go-modifier/mockaroo"
+	"github.com/troysellers/go-modifier/mockaroo/types"
 	"github.com/troysellers/go-modifier/sforce"
 )
 
@@ -75,9 +76,9 @@ func main() {
 		if *references {
 			fields := mr.Schema
 			for _, f := range fields {
-				log.Printf("MockField %v\n", f.GetFieldSpec().Name)
+				log.Printf("MockField %v\n", f.GetField().Name)
 				// TODO : handle polymorphic keys better than this...
-				field := f.GetFieldSpec().SforceMeta
+				field := f.GetField().SforceMeta
 
 				if strings.EqualFold(*obj, "task") || strings.EqualFold(*obj, "event") {
 					log.Printf("\v%v\v", "handling tasks and events!")
@@ -204,18 +205,18 @@ func uploadToSF(f string, cfg *config.Config, c *simpleforce.Client) {
 }
 
 func getstuff() {
-	schema := []mockaroo.FieldSpecInterface{}
+	schema := []types.IField{}
 	firstName := make(map[string]interface{})
 	firstName["name"] = "FirstName"
-	schema = append(schema, mockaroo.NewFirstName(firstName))
+	schema = append(schema, types.NewFirstName(firstName))
 
 	lastName := make(map[string]interface{})
 	lastName["name"] = "LastName"
-	schema = append(schema, mockaroo.NewLastName(lastName))
+	schema = append(schema, types.NewLastName(lastName))
 
 	company := make(map[string]interface{})
 	company["name"] = "Company"
-	schema = append(schema, mockaroo.NewFakeCompanyName(company))
+	schema = append(schema, types.NewFakeCompanyName(company))
 
 	b, err := json.Marshal(schema)
 	if err != nil {
