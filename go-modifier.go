@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/joho/godotenv"
 	"github.com/simpleforce/simpleforce"
@@ -23,7 +24,7 @@ func init() {
 }
 
 func main() {
-
+	start := time.Now()
 	var op = flag.String("op", "", "create | update")
 	var query = flag.Bool("query", true, "(update) run the query only, do not execute the update in Salesforce")
 	var count = flag.Int("count", 10, "(create) how many records to get from mockaroo")
@@ -58,6 +59,9 @@ func main() {
 		wg.Wait()
 	case "create":
 		log.Printf("Creating for %v\n", *obj)
+		if *personAccounts && strings.EqualFold(*obj, "contact") {
+			panic("if you wish to create Contacts that are Person Accounts you need to specify account as the object")
+		}
 		o := c.SObject(*obj)
 		mr := &mockaroo.MockarooRequest{
 			SObject:        o.Describe(),
@@ -121,6 +125,9 @@ func main() {
 			}
 		}
 	}
+
+	elapsed := time.Since(start)
+	log.Printf("Completed %v in %v", *op, elapsed)
 }
 
 //

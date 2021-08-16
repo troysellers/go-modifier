@@ -1,7 +1,6 @@
 package mockaroo
 
 import (
-	"fmt"
 	"log"
 	"strings"
 
@@ -48,13 +47,6 @@ func getSchemaForAccount(fields []interface{}, personAccounts bool) []types.IFie
 				mf = getMockTypeForField(field)
 			}
 			if mf != nil {
-				// if there is a length set the formula to ensure Mockaroo will truncate the
-				// generated value. This is to ensure we don't get errors on (mainly) text fields
-				// when inserting into salesforce.
-				l := int(field["length"].(float64))
-				if l > 0 {
-					mf.SetFormula(fmt.Sprintf("this[0,%d]", l))
-				}
 				mockFields = append(mockFields, mf)
 			}
 		}

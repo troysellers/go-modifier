@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"math"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/simpleforce/simpleforce"
 	"github.com/troysellers/go-modifier/config"
@@ -38,45 +42,111 @@ type MockarooRequest struct {
 func (r *MockarooRequest) GetDataForObj() error {
 
 	r.Schema = getSchemaForObjectType(r.SObject, r.PersonAccounts)
+
 	b, err := json.Marshal(r.Schema)
 	if err != nil {
 		return err
 	}
-	r.FilePath = fmt.Sprintf("%v%v.csv", r.Cfg.Mockaroo.DataDir, (*r.SObject)["name"])
-	f, err := os.Create(r.FilePath)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
+
 	header := true
 	// mockaroo has a 5000 record api limit.
-	mockLimit := 10
-	for i := 1; i <= r.Count/mockLimit; i++ {
+	mockLimit := 1000
+	var wg sync.WaitGroup
+	var files sync.Map
+	var index int
+
+	numBatches := r.Count / mockLimit
+
+	for i := 1; i <= numBatches; i++ {
 		log.Printf("fetching %d to %d dummy data\n", (i-1)*mockLimit, i*mockLimit)
-		fetchMockarooBatch(r.Cfg.Mockaroo.Key, mockLimit, f, b, header)
-		if i == 1 {
+		wg.Add(1)
+		fname := fmt.Sprintf("%v%v-%d.csv", r.Cfg.Mockaroo.DataDir, (*r.SObject)["name"].(string), i)
+		go fetchMockarooBatch(fname, r.Cfg.Mockaroo.Key, mockLimit, b, header, &wg, &files, i)
+
+		if header {
 			header = false
 		}
+		index = i
+		if math.Mod(float64(i), 4) == 0 {
+			wg.Wait()
+		}
 	}
-	// mod 5000 gives us the remaining records to get.
-	if int(math.Mod(float64(r.Count), float64(mockLimit))) > 0 {
-		log.Printf("fetching %d dummy data\n", int(math.Mod(float64(r.Count), float64(mockLimit))))
-		fetchMockarooBatch(r.Cfg.Mockaroo.Key, int(math.Mod(float64(r.Count), float64(mockLimit))), f, b, header)
+	// mod gives us the remaining records to get.
+	remainder := int(math.Mod(float64(r.Count), float64(mockLimit)))
+	if remainder > 0 {
+		fname := fmt.Sprintf("%v%v-%d.csv", r.Cfg.Mockaroo.DataDir, (*r.SObject)["name"].(string), index)
+		wg.Add(1)
+		go fetchMockarooBatch(fname, r.Cfg.Mockaroo.Key, remainder, b, header, &wg, &files, index)
+	}
+
+	wg.Wait()
+	r.FilePath, err = mergeFiles(&files, r.Cfg.Mockaroo.DataDir, (*r.SObject)["name"].(string))
+	if err != nil {
+		return err
 	}
 	return nil
 }
 
-func fetchMockarooBatch(key string, count int, f *os.File, schema []byte, header bool) error {
-	url := fmt.Sprintf("https://api.mockaroo.com/api/generate.csv?key=%v&count=%d&include_header=%v", key, count, header)
+func mergeFiles(files *sync.Map, dir string, obj string) (string, error) {
+
+	final, err := os.Create(fmt.Sprintf("%v%v.csv", dir, obj))
+	if err != nil {
+		return "", err
+	}
+	defer final.Close()
+	var keys []int
+
+	files.Range(func(k, s interface{}) bool {
+		keys = append(keys, k.(int))
+		return true
+	})
+
+	sort.Ints(keys)
+	for _, k := range keys {
+		s, _ := files.Load(k)
+		log.Printf("merge %v\n", s)
+		f, err := os.Open(s.(string))
+		if err != nil {
+			return "", err
+		}
+		b, err := ioutil.ReadAll(f)
+		if err != nil {
+			return "", err
+		}
+		final.Write(b)
+	}
+	return final.Name(), nil
+}
+
+func setFormula(f *types.Field) {
+	l := int(f.SforceMeta["length"].(float64))
+	if l > 0 {
+		if l > 1000 { //lets not go crazy with text
+			l = 1000
+		}
+		f.Formula = fmt.Sprintf("if this.nil? then '' else this[0,%d] end", l)
+	}
+}
+
+func fetchMockarooBatch(fname string, key string, records int, schema []byte, header bool, wg *sync.WaitGroup, files *sync.Map, mapkey int) {
+
+	defer wg.Done()
+	f, err := os.Create(fname)
+	if err != nil {
+		log.Printf("%v", err)
+	}
+	defer f.Close()
+
+	url := fmt.Sprintf("https://api.mockaroo.com/api/generate.csv?key=%v&count=%d&include_header=%v", key, records, header)
 	_, respbytes, err := doHttp(url, "", schema, "POST", nil)
 	if err != nil {
-		return err
+		panic(err)
 	}
-	log.Printf("We have %d bytes for data\n", len(respbytes))
+
 	if _, err := f.Write(respbytes); err != nil {
-		return err
+		panic(err)
 	}
-	return nil
+	files.Store(mapkey, f.Name())
 }
 
 // captures top level logic on whether the field data should
@@ -157,21 +227,26 @@ func getMockTypeForField(f map[string]interface{}) types.IField {
 // or defaults for custom object
 func getSchemaForObjectType(obj *simpleforce.SObjectMeta, personAccounts bool) []types.IField {
 
+	var schema []types.IField
 	var fields = (*obj)["fields"].([]interface{})
 	switch (*obj)["name"].(string) {
-	case "Account":
-		return getSchemaForAccount(fields, personAccounts)
-	case "Contact":
-		return getSchemaForContact(fields, personAccounts)
-	case "Case":
-		return getSchemaForCase(fields, personAccounts)
-	case "Opportunity":
-		return getSchemaForOpportunity(fields, personAccounts)
-	case "Lead":
-		return getSchmeaForLead(fields, personAccounts)
+	case "Account", "account":
+		schema = getSchemaForAccount(fields, personAccounts)
+	case "Contact", "contact":
+		schema = getSchemaForContact(fields, personAccounts)
+	case "Case", "case":
+		schema = getSchemaForCase(fields, personAccounts)
+	case "Opportunity", "opportunity":
+		schema = getSchemaForOpportunity(fields, personAccounts)
+	case "Lead", "lead":
+		schema = getSchmeaForLead(fields, personAccounts)
 	default:
-		return getSchemaForGenericObj(fields)
+		schema = getSchemaForGenericObj(fields)
 	}
+	for _, f := range schema {
+		setFormula(f.GetField())
+	}
+	return schema
 }
 
 // returns the mockaroo schema for any object we haven't
@@ -182,7 +257,15 @@ func getSchemaForGenericObj(fields []interface{}) []types.IField {
 	for _, f := range fields {
 		field := f.(map[string]interface{})
 		if shouldGetData(field) {
-			mockFields = append(mockFields, getMockTypeForField(field))
+			mf := getMockTypeForField(field)
+			l := int(field["length"].(float64))
+			if l > 0 {
+				if l > 1000 { //lets not go crazy with text
+					l = 1000
+				}
+				mf.SetFormula(fmt.Sprintf("this.nil? then '' else this[0,%d] end", l))
+			}
+			mockFields = append(mockFields, mf)
 		}
 	}
 	return mockFields
@@ -196,7 +279,8 @@ func DoHttp(url string, sid string, body []byte, method string, headers map[stri
 // errors for all others.
 func doHttp(url string, sid string, body []byte, method string, headers map[string]string) (http.Header, []byte, error) {
 
-	log.Printf("%v : %v\n", method, url)
+	defer trackTime(time.Now(), fmt.Sprintf("%v:%v", method, url))
+
 	client := &http.Client{}
 	var r *bytes.Reader
 	if body != nil {
@@ -216,7 +300,7 @@ func doHttp(url string, sid string, body []byte, method string, headers map[stri
 		return nil, nil, err
 	}
 	defer res.Body.Close()
-	log.Println("reading the bytes")
+
 	bytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		return nil, nil, err
@@ -227,4 +311,9 @@ func doHttp(url string, sid string, body []byte, method string, headers map[stri
 
 	log.Printf("Received %d bytes with http response %v\n", len(bytes), res.Status)
 	return res.Header, bytes, nil
+}
+
+func trackTime(start time.Time, name string) {
+	elapsed := time.Since(start)
+	log.Printf("%s took %s\n", name, elapsed)
 }
