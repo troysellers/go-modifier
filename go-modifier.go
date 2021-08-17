@@ -50,6 +50,23 @@ func main() {
 	var objIds sync.Map
 
 	switch *op {
+	case "writefile":
+		if err := sforce.UploadCSVToSalesforce(cfg, c, "/tmp/mockaroo-data/account-update.csv", "Account"); err != nil {
+			panic(err)
+		}
+	case "closecases":
+		qj, err := sforce.GetBulkQuery(cfg, c, "select id, status from case where isClosed=false and createddate < LAST_WEEK")
+		if err != nil {
+			panic(err)
+		}
+		for _, row := range qj.QueryData[1:] {
+			row[1] = "Closed"
+		}
+		filePath := "/tmp/mockaroo-data/closeCase.csv"
+		file.WriteCsv(filePath, qj.QueryData)
+		if err := sforce.UploadCSVToSalesforce(cfg, c, filePath, qj.BulkJob.Object); err != nil {
+			panic(err)
+		}
 	case "update":
 		var wg sync.WaitGroup
 		for _, q := range cfg.SF.Queries {
@@ -73,24 +90,25 @@ func main() {
 		if err := mr.GetDataForObj(); err != nil {
 			panic(err)
 		}
-		// TODO : check that we haven't excluded reference ids in the schema creations
+
 		if *references {
 			fields := mr.Schema
 			for _, f := range fields {
-				// TODO : handle polymorphic keys better than this...
 				field := f.GetField().SforceMeta
+				// this will replace the arrays from the metadata for referenceTo fields
+				// with the user entered values for Who and What.
+				//if strings.EqualFold(*obj, "task") || strings.EqualFold(*obj, "event") {
 
-				if strings.EqualFold(*obj, "task") || strings.EqualFold(*obj, "event") {
-					log.Printf("\v%v\v", "handling tasks and events!")
-					if field["relationshipName"] == "Who" {
-						field["referenceTo"] = []string{*whoObj}
-					}
-					if field["relationshipName"] == "What" {
-						field["referenceTo"] = []string{*whatObj}
-					}
+				if field["relationshipName"] == "Who" {
+					field["referenceTo"] = []interface{}{*whoObj}
 				}
+				if field["relationshipName"] == "What" {
+					field["referenceTo"] = []interface{}{*whatObj}
+				}
+				//	}
 				// look for the relationship fields that have been included in the schema
 				if field["relationshipName"] != nil {
+					log.Println(f.GetField().Name)
 					// fetch all the possible Ids for this.
 					fieldName := field["name"].(string)
 					rt := field["referenceTo"].([]interface{})

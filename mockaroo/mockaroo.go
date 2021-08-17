@@ -240,6 +240,10 @@ func getSchemaForObjectType(obj *simpleforce.SObjectMeta, personAccounts bool) [
 		schema = getSchemaForOpportunity(fields, personAccounts)
 	case "Lead", "lead":
 		schema = getSchmeaForLead(fields, personAccounts)
+	case "Task", "task":
+		schema = getSchemaForTask(fields, personAccounts)
+	case "Event", "event":
+		schema = getSchemaForEvent(fields, personAccounts)
 	default:
 		schema = getSchemaForGenericObj(fields)
 	}

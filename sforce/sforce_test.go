@@ -108,6 +108,23 @@ func TestGetStuff(t *testing.T) {
 	}
 
 }
+func TestWriteCSV(t *testing.T) {
+	cfg := &config.Config{
+		SF: config.SFConfig{
+			Username:   "troy@grax.sdo.allRecords",
+			Password:   "Demo1234",
+			LoginUrl:   "test.salesforce.com",
+			Token:      "",
+			ApiVersion: 52.0,
+			SfDebug:    false,
+		},
+	}
+	c, err := NewRestClient(&cfg.SF)
+	if err != nil {
+		t.Fatal(err)
+	}
+	UploadCSVToSalesforce(cfg, c, "/tmp/mockaroo-data/account-update.csv", "Account")
+}
 
 func TestCreateAccount(t *testing.T) {
 

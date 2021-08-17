@@ -23,21 +23,19 @@ func TestMod(t *testing.T) {
 }
 
 func TestNothing(t *testing.T) {
-	names := getData("/tmp/mockaroo-data/names.csv")
+	names := getData("/tmp/mockaroo-data/Account-names.csv")
 	log.Printf("%d names\n", len(names))
 
-	leads := getData("/tmp/mockaroo-data/Lead-query-modified.csv")
+	leads := getData("/tmp/mockaroo-data/Account-query-modified.csv")
 	log.Printf("%d leads\n", len(leads))
 
 	var newD [][]string
 	newD = append(newD, leads[0])
 	for _, row := range leads[1:] {
 		row[1] = getRandom(0, names[1:])
-		row[2] = getRandom(1, names[1:])
-		row[3] = getRandom(2, names[1:])
 		newD = append(newD, row)
 	}
-	write("/tmp/mockaroo-data/lead-update.csv", newD)
+	write("/tmp/mockaroo-data/account-update.csv", newD)
 }
 
 func write(f string, d [][]string) {
