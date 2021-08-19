@@ -12,7 +12,7 @@ func getSchemaForContact(fields []interface{}, personAccounts bool) []types.IFie
 		field := f.(map[string]interface{})
 		if shouldGetData(field) {
 			switch field["name"].(string) {
-			case "ParentId", "IndividualId", "ReportsToId", "Jigsaw":
+			case "ParentId", "IndividualId", "ReportsToId", "Jigsaw", "CleanStatus":
 				log.Printf("Skipping %v - yet to be handled \n", field["name"])
 			case "LastName":
 				mockFields = append(mockFields, types.NewLastName(field))

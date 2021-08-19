@@ -118,18 +118,19 @@ func main() {
 					} else {
 						referenceTo = rt[0].(string)
 					}
-
-					_, ok := objIds.Load(referenceTo)
-					if !ok {
-						// if not, get and cache in the sync.Map
-						ids, err := sforce.GetAllObjIds(cfg, referenceTo, c)
-						if err != nil {
+					if referenceTo != "" {
+						_, ok := objIds.Load(referenceTo)
+						if !ok {
+							// if not, get and cache in the sync.Map
+							ids, err := sforce.GetAllObjIds(cfg, referenceTo, c)
+							if err != nil {
+								panic(err)
+							}
+							objIds.Store(referenceTo, ids)
+						}
+						if err := updateIds(cfg, mr.FilePath, referenceTo, fieldName, &objIds, c); err != nil {
 							panic(err)
 						}
-						objIds.Store(referenceTo, ids)
-					}
-					if err := updateIds(cfg, mr.FilePath, referenceTo, fieldName, &objIds, c); err != nil {
-						panic(err)
 					}
 				}
 			}

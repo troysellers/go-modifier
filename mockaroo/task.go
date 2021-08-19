@@ -28,7 +28,11 @@ func getSchemaForTask(fields []interface{}, personAccounts bool) []types.IField 
 			case "CompletedDateTime":
 				dt := types.NewDatetime(field)
 				dt.Max = time.Now().Format("01-02-2006")
-			case "Priority", "ActivityDate", "Status", "Subject", "CallType", "Type", "OwnerId":
+			case "ActivityDate":
+				dt := types.NewDUNSNumber(field)
+				dt.Formula = "if random(0,10) <= 7 then (DateTime.now - random(1,365)).iso8601 else (DateTime.now + random(1,365)).iso8601 end"
+				mf = dt
+			case "Priority", "Status", "Subject", "CallType", "Type", "OwnerId":
 				mf = getMockTypeForField(field)
 			default:
 				log.Printf("TASK : Ignoring %v\n", field["name"])

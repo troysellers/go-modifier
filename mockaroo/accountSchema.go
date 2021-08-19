@@ -15,7 +15,7 @@ func getSchemaForAccount(fields []interface{}, personAccounts bool) []types.IFie
 		if shouldGetData(field) {
 			var mf types.IField
 			switch field["name"].(string) {
-			case "RecordTypeId", "IsPartner", "IsCustomerPortal", "ParentId":
+			case "RecordTypeId", "IsPartner", "IsCustomerPortal", "ParentId", "CleanStatus", "Jigsaw":
 				log.Printf("TODO : Have not implemented %v\n", field["name"].(string))
 			case "Name":
 				mf = types.NewFakeCompanyName(field)

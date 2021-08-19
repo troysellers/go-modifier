@@ -562,9 +562,6 @@ func GetValueForType(cfg *config.Config, f map[string]interface{}, c *simpleforc
 		if f["unique"].(bool) {
 			return uuid.New(), nil
 		}
-		if f["name"].(string) != "" {
-			return "RestoreME!", nil
-		}
 		l := int(f["length"].(float64))
 		return lorem.Word(1, rand.Intn(l)), nil
 	case "datetime", "date":

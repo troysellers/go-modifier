@@ -130,6 +130,7 @@ func setFormula(f *types.Field) {
 
 func fetchMockarooBatch(fname string, key string, records int, schema []byte, header bool, wg *sync.WaitGroup, files *sync.Map, mapkey int) {
 
+	log.Printf("Fetching mockaroo schema \n%v\n", string(schema))
 	defer wg.Done()
 	f, err := os.Create(fname)
 	if err != nil {
@@ -137,9 +138,14 @@ func fetchMockarooBatch(fname string, key string, records int, schema []byte, he
 	}
 	defer f.Close()
 
+	headers := make(map[string]string)
+	headers["Accept"] = "application/json"
+	headers["Content-Type"] = "application/json"
 	url := fmt.Sprintf("https://api.mockaroo.com/api/generate.csv?key=%v&count=%d&include_header=%v", key, records, header)
-	_, respbytes, err := doHttp(url, "", schema, "POST", nil)
+
+	_, respbytes, err := doHttp(url, "", schema, "POST", headers)
 	if err != nil {
+		log.Printf("%v", err)
 		panic(err)
 	}
 
