@@ -7,8 +7,9 @@ import (
 )
 
 type Config struct {
-	SF       SFConfig
-	Mockaroo MockarooConfig
+	SF             SFConfig
+	Mockaroo       MockarooConfig
+	ModifyWithNull bool
 }
 type MockarooConfig struct {
 	Key     string
@@ -43,6 +44,7 @@ func NewConfig() *Config {
 			Key:     getEnv("MOCKAROO_KEY", ""),
 			DataDir: getEnv("MOCKAROO_DATA_DIR", ""),
 		},
+		ModifyWithNull: getEnvBool("MODIFY_WITH_NULL", false),
 	}
 }
 

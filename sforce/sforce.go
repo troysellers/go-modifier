@@ -195,13 +195,18 @@ func (qj *QueryJob) ModifyData(cfg *config.Config, objIds *sync.Map, c *simplefo
 		if f["updateable"].(bool) {
 			// loop through each row in the file
 			for _, row := range qj.QueryData[1:] {
+
 				val, err := GetValueForType(cfg, f, qj.SFClient, objIds)
 				if err != nil {
 					log.Printf("%v", err)
 				} else {
-					// update the column with this random value
-					row[i] = fmt.Sprintf("%v", val)
-					log.Printf("update %v to %v", fieldName, val)
+					if cfg.ModifyWithNull {
+						row[i] = "null"
+					} else {
+						// update the column with this random value
+						row[i] = fmt.Sprintf("%v", val)
+					}
+					log.Printf("update %v to %v", fieldName, row[i])
 				}
 			}
 		}
@@ -569,7 +574,7 @@ func GetValueForType(cfg *config.Config, f map[string]interface{}, c *simpleforc
 		d = d.AddDate(0, rand.Intn(12), rand.Intn(30))
 		return d, nil
 	case "reference":
-		log.Printf("REFERENCCE %v\n", f)
+		//	log.Printf("REFERENCCE %v\n", f)
 		// get the name of the object this field references
 		rt := f["referenceTo"].([]interface{})
 		referenceTo := rt[0].(string)
