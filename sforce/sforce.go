@@ -192,6 +192,7 @@ func (qj *QueryJob) ModifyData(cfg *config.Config, objIds *sync.Map, c *simplefo
 		// get the SF metadata for this field
 		f := getField(fieldName, (*qj.SFObjectMeta)["fields"].([]interface{}))
 		// if field is updateable
+
 		if f["updateable"].(bool) {
 			// loop through each row in the file
 			for _, row := range qj.QueryData[1:] {
@@ -210,6 +211,7 @@ func (qj *QueryJob) ModifyData(cfg *config.Config, objIds *sync.Map, c *simplefo
 				}
 			}
 		}
+
 	}
 	return nil
 }
@@ -596,6 +598,7 @@ func GetValueForType(cfg *config.Config, f map[string]interface{}, c *simpleforc
 		p := f["precision"].(float64)
 		s := f["scale"].(float64)
 		return rand.Intn(int(p)) / int(math.Pow10(int(s))), nil
+		//return rand.Intn(12000) * 100, nil
 	case "email":
 		return lorem.Email(), nil
 	case "location":
@@ -609,6 +612,10 @@ func GetValueForType(cfg *config.Config, f map[string]interface{}, c *simpleforc
 		return "000000000", nil
 		//return nil, fmt.Errorf("phone value not implemented yet")
 	case "picklist", "multipicklist":
+		/*
+			if f["name"].(string) == "StageName" {
+				return "Closed Lost", nil
+			}*/
 		plv := f["picklistValues"].([]interface{})
 		selected := plv[rand.Intn(len(plv))]
 		return selected.(map[string]interface{})["value"], nil

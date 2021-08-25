@@ -50,7 +50,7 @@ func (r *MockarooRequest) GetDataForObj() error {
 
 	header := true
 	// mockaroo has a 5000 record api limit.
-	mockLimit := 1000
+	mockLimit := 250
 	var wg sync.WaitGroup
 	var files sync.Map
 	var index int
@@ -130,7 +130,7 @@ func setFormula(f *types.Field) {
 
 func fetchMockarooBatch(fname string, key string, records int, schema []byte, header bool, wg *sync.WaitGroup, files *sync.Map, mapkey int) {
 
-	log.Printf("Fetching mockaroo schema \n%v\n", string(schema))
+	//log.Printf("Fetching mockaroo schema \n%v\n", string(schema))
 	defer wg.Done()
 	f, err := os.Create(fname)
 	if err != nil {
